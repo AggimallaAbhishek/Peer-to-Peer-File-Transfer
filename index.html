@@ -45,7 +45,7 @@
         .app-container {
              height: 100%;
         }
-        /* NEW: Style for the drag-over effect */
+        /* Style for the drag-over effect */
         .drag-over {
             border: 2px dashed #818cf8; /* Lighter indigo */
             transform: scale(1.02);
@@ -91,9 +91,9 @@
                 <!-- File Selection -->
                 <div id="file-selection-container" class="hidden">
                      <label for="file-input" class="w-full cursor-pointer bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105 text-center block">
-                        Select a File (or Drag & Drop)
+                        Select Files (or Drag & Drop)
                     </label>
-                    <input type="file" id="file-input" class="hidden">
+                    <input type="file" id="file-input" class="hidden" multiple>
                 </div>
 
                 <!-- File Confirmation -->
@@ -102,7 +102,7 @@
                     <p id="file-info-text" class="font-semibold text-white bg-gray-700 p-3 rounded-lg"></p>
                     <div class="flex space-x-3">
                         <button id="cancel-btn" class="w-full bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition">Cancel</button>
-                        <button id="send-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition">Send File</button>
+                        <button id="send-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition">Send Files</button>
                     </div>
                 </div>
 
@@ -110,11 +110,10 @@
                     <div id="progress-bar" class="bg-indigo-500 h-4 rounded-full" style="width: 0%"></div>
                 </div>
 
-                 <div id="download-container" class="text-center hidden">
-                    <p id="download-filename" class="text-gray-300 mb-2"></p>
-                    <a id="download-link" class="w-full block bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105">
-                        Download File
-                    </a>
+                 <!-- MODIFIED: Download List Container -->
+                 <div id="download-container" class="hidden text-left">
+                    <p class="font-semibold text-gray-300 mb-2">Received Files:</p>
+                    <div id="download-list" class="space-y-2 max-h-48 overflow-y-auto"></div>
                 </div>
             </div>
         </div>
@@ -147,7 +146,7 @@
         const CHUNK_SIZE = 64 * 1024; // 64KB
 
         // --- DOM Elements ---
-        const dropZone = document.getElementById('drop-zone'); // NEW
+        const dropZone = document.getElementById('drop-zone');
         const startScreen = document.getElementById('start-screen');
         const shareScreen = document.getElementById('share-screen');
         const createBtn = document.getElementById('create-btn');
@@ -165,8 +164,7 @@
         const progressContainer = document.getElementById('progress-container');
         const progressBar = document.getElementById('progress-bar');
         const downloadContainer = document.getElementById('download-container');
-        const downloadFilename = document.getElementById('download-filename');
-        const downloadLink = document.getElementById('download-link');
+        const downloadList = document.getElementById('download-list');
 
         // --- Global State ---
         let peerConnection;
@@ -176,25 +174,20 @@
         let receivedSize = 0;
         let fileMetadata = null;
         let isInitiator = false;
-        let selectedFile = null;
+        let selectedFiles = []; // MODIFIED: Now an array for the file queue
+        let currentFileIndex = 0; // NEW: To track which file is being sent
 
         // --- Core Logic ---
 
         const initialize = () => {
             const urlParams = new URLSearchParams(window.location.search);
             const roomId = urlParams.get('id');
-
-            if (roomId) {
-                joinRoom(roomId);
-            }
-
+            if (roomId) { joinRoom(roomId); }
             createBtn.addEventListener('click', createRoom);
             copyBtn.addEventListener('click', shareOrCopyLink);
             fileInput.addEventListener('change', handleFileSelect);
-            sendBtn.addEventListener('click', sendFile);
+            sendBtn.addEventListener('click', startSendingFiles);
             cancelBtn.addEventListener('click', cancelFileSelection);
-
-            // NEW: Add Drag and Drop listeners
             dropZone.addEventListener('dragover', handleDragOver);
             dropZone.addEventListener('dragleave', handleDragLeave);
             dropZone.addEventListener('drop', handleDrop);
@@ -224,15 +217,11 @@
                 const remoteCandidateCollection = collection(db, 'rooms', roomId, 'receiverCandidates');
                 onSnapshot(remoteCandidateCollection, (snapshot) => {
                     snapshot.docChanges().forEach((change) => {
-                        if (change.type === 'added') {
-                            peerConnection.addIceCandidate(new RTCIceCandidate(change.doc.data()));
-                        }
+                        if (change.type === 'added') { peerConnection.addIceCandidate(new RTCIceCandidate(change.doc.data())); }
                     });
                 });
                 peerConnection.onicecandidate = async (event) => {
-                    if (event.candidate) {
-                        await addDoc(collection(db, 'rooms', roomId, 'initiatorCandidates'), event.candidate.toJSON());
-                    }
+                    if (event.candidate) { await addDoc(collection(db, 'rooms', roomId, 'initiatorCandidates'), event.candidate.toJSON()); }
                 };
                 shareLinkInput.value = `${window.location.origin}${window.location.pathname}?id=${roomId}`;
                 window.addEventListener('beforeunload', () => deleteDoc(doc(db, 'rooms', roomId)));
@@ -250,28 +239,18 @@
             try {
                 const roomRef = doc(db, 'rooms', roomId);
                 const roomSnap = await getDoc(roomRef);
-                if (!roomSnap.exists()) {
-                    updateStatus('Error: Room does not exist.', 'error');
-                    return;
-                }
+                if (!roomSnap.exists()) { updateStatus('Error: Room does not exist.', 'error'); return; }
                 peerConnection = new RTCPeerConnection(servers);
                 const remoteCandidateCollection = collection(db, 'rooms', roomId, 'initiatorCandidates');
                 onSnapshot(remoteCandidateCollection, (snapshot) => {
                     snapshot.docChanges().forEach((change) => {
-                        if (change.type === 'added') {
-                            peerConnection.addIceCandidate(new RTCIceCandidate(change.doc.data()));
-                        }
+                        if (change.type === 'added') { peerConnection.addIceCandidate(new RTCIceCandidate(change.doc.data())); }
                     });
                 });
                 peerConnection.onicecandidate = async (event) => {
-                    if (event.candidate) {
-                        await addDoc(collection(db, 'rooms', roomId, 'receiverCandidates'), event.candidate.toJSON());
-                    }
+                    if (event.candidate) { await addDoc(collection(db, 'rooms', roomId, 'receiverCandidates'), event.candidate.toJSON()); }
                 };
-                peerConnection.ondatachannel = (event) => {
-                    dataChannel = event.channel;
-                    setupDataChannel();
-                };
+                peerConnection.ondatachannel = (event) => { dataChannel = event.channel; setupDataChannel(); };
                 const offer = roomSnap.data().offer;
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
                 const answer = await peerConnection.createAnswer();
@@ -287,9 +266,7 @@
         const setupDataChannel = () => {
             dataChannel.onopen = () => {
                 updateStatus('Connected to peer!', 'connected');
-                if (isInitiator) {
-                    fileSelectionContainer.classList.remove('hidden');
-                }
+                if (isInitiator) { fileSelectionContainer.classList.remove('hidden'); }
             };
             dataChannel.onclose = () => {
                 updateStatus('Connection closed.', 'waiting');
@@ -300,60 +277,62 @@
             dataChannel.onmessage = handleDataChannelMessage;
         };
 
-        // --- NEW Drag and Drop Handlers ---
         const handleDragOver = (e) => {
             e.preventDefault();
-            // Show the drop effect only when file selection is visible
-            if (!fileSelectionContainer.classList.contains('hidden')) {
-                dropZone.classList.add('drag-over');
-            }
+            if (!fileSelectionContainer.classList.contains('hidden')) { dropZone.classList.add('drag-over'); }
         };
-
-        const handleDragLeave = (e) => {
-            e.preventDefault();
-            dropZone.classList.remove('drag-over');
-        };
-
+        const handleDragLeave = (e) => { e.preventDefault(); dropZone.classList.remove('drag-over'); };
         const handleDrop = (e) => {
             e.preventDefault();
             dropZone.classList.remove('drag-over');
-            // Process drop only when file selection is visible
-            if (!fileSelectionContainer.classList.contains('hidden')) {
-                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                    processSelectedFile(e.dataTransfer.files[0]); // Use the first dropped file
-                    e.dataTransfer.clearData();
-                }
+            if (!fileSelectionContainer.classList.contains('hidden') && e.dataTransfer.files) {
+                processSelectedFiles(e.dataTransfer.files);
+                e.dataTransfer.clearData();
             }
         };
 
-        // REFACTORED to handle file from both input and drop
-        const processSelectedFile = (file) => {
-            if (!file) return;
-            selectedFile = file;
-            fileInfoText.textContent = `${file.name} (${formatBytes(file.size)})`;
+        // MODIFIED to handle multiple files
+        const processSelectedFiles = (fileList) => {
+            if (!fileList || fileList.length === 0) return;
+            selectedFiles = Array.from(fileList); // Convert FileList to Array
+            const totalSize = selectedFiles.reduce((acc, file) => acc + file.size, 0);
+            fileInfoText.textContent = `${selectedFiles.length} files selected (${formatBytes(totalSize)})`;
             fileSelectionContainer.classList.add('hidden');
             fileConfirmationContainer.classList.remove('hidden');
         };
 
-        const handleFileSelect = (event) => {
-            processSelectedFile(event.target.files[0]);
-        };
+        const handleFileSelect = (event) => { processSelectedFiles(event.target.files); };
 
         const cancelFileSelection = () => {
-            selectedFile = null;
+            selectedFiles = [];
+            currentFileIndex = 0;
             fileInput.value = null;
             fileConfirmationContainer.classList.add('hidden');
             fileSelectionContainer.classList.remove('hidden');
         };
         
-        const sendFile = () => {
-            if (!selectedFile) return;
-            const file = selectedFile;
+        // NEW: Kicks off the sending process
+        const startSendingFiles = () => {
+            currentFileIndex = 0;
             fileConfirmationContainer.classList.add('hidden');
             progressContainer.classList.remove('hidden');
-            updateStatus(`Sending file: ${file.name}`, 'progress');
+            sendNextFile();
+        };
+        
+        // MODIFIED: Sends one file from the queue, then calls itself for the next one
+        const sendNextFile = () => {
+            if (currentFileIndex >= selectedFiles.length) {
+                updateStatus('All files sent successfully.', 'connected');
+                cancelFileSelection(); // Reset UI
+                return;
+            }
+
+            const file = selectedFiles[currentFileIndex];
+            updateStatus(`Sending file ${currentFileIndex + 1} of ${selectedFiles.length}: ${file.name}`, 'progress');
+            
             fileMetadata = { name: file.name, size: file.size, type: file.type };
             dataChannel.send(JSON.stringify(fileMetadata));
+
             fileReader = new FileReader();
             let offset = 0;
             fileReader.onload = (e) => {
@@ -363,10 +342,8 @@
                 if (offset < file.size) {
                     readSlice(offset);
                 } else {
-                    updateStatus(`File "${file.name}" sent successfully.`, 'connected');
-                    selectedFile = null;
-                    fileInput.value = null;
-                    fileSelectionContainer.classList.remove('hidden');
+                    currentFileIndex++; // Move to the next file
+                    sendNextFile(); // Send the next file in the queue
                 }
             };
             const readSlice = (o) => {
@@ -376,11 +353,13 @@
             readSlice(0);
         };
         
+        // MODIFIED to handle multiple incoming files
         const handleDataChannelMessage = (event) => {
             if (typeof event.data === 'string') {
                 fileMetadata = JSON.parse(event.data);
                 receiveBuffer = [];
                 receivedSize = 0;
+                progressBar.style.width = '0%'; // Reset progress bar for new file
                 progressContainer.classList.remove('hidden');
                 updateStatus(`Receiving file: ${fileMetadata.name}`, 'progress');
                 return;
@@ -388,19 +367,23 @@
             receiveBuffer.push(event.data);
             receivedSize += event.data.byteLength;
             updateProgressBar(receivedSize, fileMetadata.size);
+
             if (receivedSize === fileMetadata.size) {
                 const receivedFile = new Blob(receiveBuffer, { type: fileMetadata.type });
-                receiveBuffer = [];
-                downloadLink.href = URL.createObjectURL(receivedFile);
-                downloadLink.download = fileMetadata.name;
-                downloadFilename.textContent = `Received: ${fileMetadata.name} (${formatBytes(fileMetadata.size)})`;
-                progressContainer.classList.add('hidden');
+                
+                // NEW: Create and append a new download link for each file
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(receivedFile);
+                link.download = fileMetadata.name;
+                link.textContent = `${fileMetadata.name} (${formatBytes(fileMetadata.size)})`;
+                link.className = 'w-full block bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3 rounded-lg text-sm text-center';
+                downloadList.appendChild(link);
+                
                 downloadContainer.classList.remove('hidden');
-                updateStatus(`File "${fileMetadata.name}" received successfully.`, 'connected');
+                updateStatus(`File "${fileMetadata.name}" received. Waiting for next file...`, 'connected');
             }
         };
 
-        // --- UI Helper Functions ---
         const shareOrCopyLink = async () => {
             const urlToShare = shareLinkInput.value;
             if (navigator.share) {
@@ -408,16 +391,11 @@
                     await navigator.share({ title: 'DirectDrop File Share', text: 'Join my secure file transfer session:', url: urlToShare });
                     copyBtn.textContent = 'Shared!';
                 } catch (error) {
-                    if (error.name === 'NotAllowedError') {
-                        console.warn('Share API permission denied. Falling back to copy.');
-                    } else {
-                        console.error('Error sharing:', error);
-                    }
+                    if (error.name === 'NotAllowedError') { console.warn('Share API permission denied. Falling back to copy.'); } 
+                    else { console.error('Error sharing:', error); }
                     copyToClipboard(urlToShare);
                 }
-            } else {
-                copyToClipboard(urlToShare);
-            }
+            } else { copyToClipboard(urlToShare); }
         };
 
         const copyToClipboard = (text) => {
@@ -460,5 +438,4 @@
     </script>
 </body>
 </html>
-
 
