@@ -1,0 +1,4 @@
+/*
+Content-Security-Policy: script-src 'self' https://cdn.tailwindcss.com https://www.gstatic.com;
+Content-Security-Policy: style-src 'self' 'unsafe-inline' https://www.google.com/url?sa=E&source=gmail&q=https://fonts.googleapis.com;
+Content-Security-Policy: font-src 'self' https://www.google.com/search?q=https://fonts.gstatic.com;
