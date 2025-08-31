@@ -1,53 +1,504 @@
-const CACHE_NAME = 'directdrop-v1';
-const urlsToCache = [
-  '/',
-  '/index.html',
-  'https://cdn.tailwindcss.com',
-  'https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js',
-  'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap'
-  // Note: We don't cache Firebase scripts as they need a live connection.
-];
-
-// Install the service worker and cache the app shell
-self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => {
-        console.log('Opened cache');
-        return cache.addAll(urlsToCache);
-      })
-  );
-});
-
-// Serve cached content when offline
-self.addEventListener('fetch', event => {
-  event.respondWith(
-    caches.match(event.request)
-      .then(response => {
-        // Cache hit - return response
-        if (response) {
-          return response;
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>P2P Direct File Share</title>
+    <!-- PWA Manifest Link -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#4f46e5">
+    <!-- App Description -->
+    <meta name="description" content="Secure Peer-to-Peer File Sharing application built with WebRTC.">
+    <!-- Apple Touch Icon for iOS home screen -->
+    <link rel="apple-touch-icon" href="https://placehold.co/180x180/4f46e5/ffffff?text=DD">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
         }
-        // Not in cache - fetch from network
-        return fetch(event.request);
-      }
-    )
-  );
-});
+        .lds-ring {
+            display: inline-block;
+            position: relative;
+            width: 20px;
+            height: 20px;
+            margin-right: 8px;
+        }
+        .lds-ring div {
+            box-sizing: border-box;
+            display: block;
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            margin: 2px;
+            border: 2px solid #fff;
+            border-radius: 50%;
+            animation: lds-ring 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+            border-color: #fff transparent transparent transparent;
+        }
+        .lds-ring div:nth-child(1) { animation-delay: -0.45s; }
+        .lds-ring div:nth-child(2) { animation-delay: -0.3s; }
+        .lds-ring div:nth-child(3) { animation-delay: -0.15s; }
+        @keyframes lds-ring {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        html, body {
+            height: 100%;
+            overflow: hidden;
+        }
+        .app-container {
+             height: 100%;
+        }
+        .drag-over {
+            border: 2px dashed #818cf8;
+            transform: scale(1.02);
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white">
 
-// Optional: Clean up old caches
-self.addEventListener('activate', event => {
-  const cacheWhitelist = [CACHE_NAME];
-  event.waitUntil(
-    caches.keys().then(cacheNames => {
-      return Promise.all(
-        cacheNames.map(cacheName => {
-          if (cacheWhitelist.indexOf(cacheName) === -1) {
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    })
-  );
-});
+    <div class="app-container flex items-center justify-center p-4">
+        <div id="drop-zone" class="w-full max-w-md p-8 space-y-4 bg-gray-800 rounded-2xl shadow-xl transition-all duration-200">
+            <!-- Header -->
+            <div>
+                <h1 class="text-3xl font-bold text-center text-indigo-400">DirectDrop</h1>
+                <p class="text-center text-gray-400 mt-2">Secure Peer-to-Peer File Sharing</p>
+            </div>
+
+            <!-- Initial Screen -->
+            <div id="start-screen" class="text-center">
+                <button id="create-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105">
+                    Create Share Link
+                </button>
+            </div>
+            
+            <!-- Sharing Screen -->
+            <div id="share-screen" class="hidden space-y-4">
+                <div>
+                    <label class="font-semibold text-gray-300">Share this link with your peer:</label>
+                    <div class="mt-2 flex rounded-lg shadow-sm">
+                        <input type="text" id="share-link" readonly class="flex-1 block w-full rounded-none rounded-l-md bg-gray-700 border-gray-600 text-gray-200 p-3 focus:ring-indigo-500 focus:border-indigo-500">
+                        <button id="copy-btn" class="inline-flex items-center px-4 py-2 border border-l-0 border-gray-600 text-sm font-medium rounded-r-md text-white bg-gray-600 hover:bg-gray-500">
+                            Copy
+                        </button>
+                    </div>
+                </div>
+
+                <!-- QR Code Display Area -->
+                <div id="qr-code-container" class="hidden mx-auto bg-white p-2 rounded-lg w-40 h-40">
+                    <!-- QR code will be generated here -->
+                </div>
+
+                <div id="status-container" class="text-center p-4 rounded-lg bg-gray-700 transition-colors duration-300">
+                    <p id="status-text" class="text-gray-300 flex items-center justify-center">
+                        <span id="status-spinner" class="hidden"><div class="lds-ring"><div></div><div></div><div></div><div></div></div></span>
+                        Waiting for peer to connect...
+                    </p>
+                </div>
+
+                <!-- Chat Interface -->
+                <div id="chat-container" class="hidden w-full">
+                    <div id="chat-log" class="h-32 overflow-y-auto bg-gray-900 rounded-t-lg p-3 text-sm space-y-2">
+                        <!-- Messages appear here -->
+                    </div>
+                    <div class="flex">
+                        <input type="text" id="chat-input" placeholder="Type a message..." class="flex-1 bg-gray-700 border-gray-600 text-gray-200 p-2 focus:ring-indigo-500 focus:border-indigo-500 rounded-bl-lg">
+                        <button id="chat-send-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-br-lg">Send</button>
+                    </div>
+                </div>
+
+                <!-- File Selection -->
+                <div id="file-selection-container" class="hidden">
+                     <label for="file-input" class="w-full cursor-pointer bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105 text-center block">
+                        Select Files (or Drag & Drop)
+                    </label>
+                    <input type="file" id="file-input" class="hidden" multiple>
+                </div>
+
+                <!-- File Confirmation -->
+                <div id="file-confirmation-container" class="hidden space-y-3 text-center">
+                    <p class="text-gray-300">Ready to send:</p>
+                    <p id="file-info-text" class="font-semibold text-white bg-gray-700 p-3 rounded-lg"></p>
+                    <div class="flex space-x-3">
+                        <button id="cancel-btn" class="w-full bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition">Cancel</button>
+                        <button id="send-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition">Send Files</button>
+                    </div>
+                </div>
+
+                <div id="progress-container" class="hidden w-full bg-gray-700 rounded-full h-4">
+                    <div id="progress-bar" class="bg-indigo-500 h-4 rounded-full" style="width: 0%"></div>
+                </div>
+
+                 <!-- Download List Container -->
+                 <div id="download-container" class="hidden text-left">
+                    <p class="font-semibold text-gray-300 mb-2">Received Files:</p>
+                    <div id="download-list" class="space-y-2 max-h-48 overflow-y-auto"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // --- Firebase Configuration ---
+        const firebaseConfig = JSON.parse(atob("eyJhcGlLZXkiOiJBSXphU3lBdTFLZUhVV2ExQTd6djhINHNNTmpCNnpnNE9SOVlWMmMiLCJhdXRoRG9tYWluIjoicDJwLWZpbGUtdHJhbnNmZXItYjQyYzUuZmlyZWJhc2VhcHAuY29tIiwicHJvamVjdElkIjoicDJwLWZpbGUtdHJhbnNmZXItYjQyYzUiLCJzdG9yYWdlQnVja2V0IjoicDJwLWZpbGUtdHJhbnNmZXItYjQyYzUuYXBwc3BvdC5jb20iLCJtZXNzYWdpbmdTZW5kZXJJZCI6IjI0NDg5NTM1MTgxNiJ9"));
+
+        // Import Firebase modules
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, addDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        
+        // --- WebRTC Configuration ---
+        const servers = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                {
+                    urls: 'turn:openrelay.metered.ca:80',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject',
+                },
+            ],
+        };
+        const CHUNK_SIZE = 64 * 1024;
+
+        // --- DOM Elements ---
+        const dropZone = document.getElementById('drop-zone');
+        const startScreen = document.getElementById('start-screen');
+        const shareScreen = document.getElementById('share-screen');
+        const createBtn = document.getElementById('create-btn');
+        const shareLinkInput = document.getElementById('share-link');
+        const copyBtn = document.getElementById('copy-btn');
+        const qrCodeContainer = document.getElementById('qr-code-container');
+        const statusContainer = document.getElementById('status-container');
+        const statusText = document.getElementById('status-text');
+        const statusSpinner = document.getElementById('status-spinner');
+        const chatContainer = document.getElementById('chat-container');
+        const chatLog = document.getElementById('chat-log');
+        const chatInput = document.getElementById('chat-input');
+        const chatSendBtn = document.getElementById('chat-send-btn');
+        const fileSelectionContainer = document.getElementById('file-selection-container');
+        const fileInput = document.getElementById('file-input');
+        const fileConfirmationContainer = document.getElementById('file-confirmation-container');
+        const fileInfoText = document.getElementById('file-info-text');
+        const sendBtn = document.getElementById('send-btn');
+        const cancelBtn = document.getElementById('cancel-btn');
+        const progressContainer = document.getElementById('progress-container');
+        const progressBar = document.getElementById('progress-bar');
+        const downloadContainer = document.getElementById('download-container');
+        const downloadList = document.getElementById('download-list');
+
+        // --- Global State ---
+        let peerConnection;
+        let dataChannel;
+        let fileReader;
+        let receiveBuffer = [];
+        let receivedSize = 0;
+        let fileMetadata = null;
+        let isInitiator = false;
+        let selectedFiles = [];
+        let currentFileIndex = 0;
+
+        // --- Core Logic ---
+        const initialize = () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const roomId = urlParams.get('id');
+            if (roomId) { joinRoom(roomId); }
+            createBtn.addEventListener('click', createRoom);
+            copyBtn.addEventListener('click', shareOrCopyLink);
+            chatSendBtn.addEventListener('click', sendChatMessage);
+            chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sendChatMessage(); } });
+            fileInput.addEventListener('change', handleFileSelect);
+            sendBtn.addEventListener('click', startSendingFiles);
+            cancelBtn.addEventListener('click', cancelFileSelection);
+            dropZone.addEventListener('dragover', handleDragOver);
+            dropZone.addEventListener('dragleave', handleDragLeave);
+            dropZone.addEventListener('drop', handleDrop);
+        };
+        
+        const createRoom = async () => {
+            isInitiator = true;
+            startScreen.classList.add('hidden');
+            shareScreen.classList.remove('hidden');
+            updateStatus('Waiting for peer to connect...', 'waiting');
+            if (navigator.share) { copyBtn.textContent = 'Share'; }
+            try {
+                const roomRef = doc(collection(db, 'rooms'));
+                const roomId = roomRef.id;
+                peerConnection = new RTCPeerConnection(servers);
+                dataChannel = peerConnection.createDataChannel('file-transfer');
+                setupDataChannel();
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                await setDoc(roomRef, { offer: { sdp: offer.sdp, type: offer.type } });
+                onSnapshot(roomRef, (doc) => {
+                    const data = doc.data();
+                    if (!peerConnection.currentRemoteDescription && data?.answer) {
+                        peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+                    }
+                });
+                const remoteCandidateCollection = collection(db, 'rooms', roomId, 'receiverCandidates');
+                onSnapshot(remoteCandidateCollection, (snapshot) => {
+                    snapshot.docChanges().forEach((change) => {
+                        if (change.type === 'added') { peerConnection.addIceCandidate(new RTCIceCandidate(change.doc.data())); }
+                    });
+                });
+                peerConnection.onicecandidate = async (event) => {
+                    if (event.candidate) { await addDoc(collection(db, 'rooms', roomId, 'initiatorCandidates'), event.candidate.toJSON()); }
+                };
+                const shareLink = `${window.location.origin}${window.location.pathname}?id=${roomId}`;
+                shareLinkInput.value = shareLink;
+                qrCodeContainer.innerHTML = '';
+                new QRCode(qrCodeContainer, {
+                    text: shareLink,
+                    width: 144,
+                    height: 144,
+                    colorDark : "#000000",
+                    colorLight : "#ffffff",
+                    correctLevel : QRCode.CorrectLevel.H
+                });
+                qrCodeContainer.classList.remove('hidden');
+                window.addEventListener('beforeunload', () => deleteDoc(doc(db, 'rooms', roomId)));
+            } catch (error) {
+                console.error("Error creating room:", error);
+                updateStatus("Error: Could not create a share link.", 'error');
+            }
+        };
+
+        const joinRoom = async (roomId) => {
+            isInitiator = false;
+            startScreen.classList.add('hidden');
+            shareScreen.classList.remove('hidden');
+            updateStatus('Connecting to peer...', 'progress');
+            try {
+                const roomRef = doc(db, 'rooms', roomId);
+                const roomSnap = await getDoc(roomRef);
+                if (!roomSnap.exists()) { updateStatus('Error: Room does not exist.', 'error'); return; }
+                peerConnection = new RTCPeerConnection(servers);
+                const remoteCandidateCollection = collection(db, 'rooms', roomId, 'initiatorCandidates');
+                onSnapshot(remoteCandidateCollection, (snapshot) => {
+                    snapshot.docChanges().forEach((change) => {
+                        if (change.type === 'added') { peerConnection.addIceCandidate(new RTCIceCandidate(change.doc.data())); }
+                    });
+                });
+                peerConnection.onicecandidate = async (event) => {
+                    if (event.candidate) { await addDoc(collection(db, 'rooms', roomId, 'receiverCandidates'), event.candidate.toJSON()); }
+                };
+                peerConnection.ondatachannel = (event) => { dataChannel = event.channel; setupDataChannel(); };
+                const offer = roomSnap.data().offer;
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                await updateDoc(roomRef, { answer: { sdp: answer.sdp, type: answer.type } });
+                window.addEventListener('beforeunload', () => deleteDoc(doc(db, 'rooms',roomId)));
+            } catch (error) {
+                console.error("Error joining room:", error);
+                updateStatus("Error: Could not join session.", 'error');
+            }
+        };
+        
+        const setupDataChannel = () => {
+            dataChannel.onopen = () => {
+                updateStatus('Connected to peer!', 'connected');
+                chatContainer.classList.remove('hidden');
+                if (isInitiator) { fileSelectionContainer.classList.remove('hidden'); }
+            };
+            dataChannel.onclose = () => {
+                updateStatus('Connection closed.', 'waiting');
+                chatContainer.classList.add('hidden');
+                fileSelectionContainer.classList.add('hidden');
+                fileConfirmationContainer.classList.add('hidden');
+                progressContainer.classList.add('hidden');
+            };
+            dataChannel.onmessage = handleDataChannelMessage;
+        };
+
+        const handleDragOver = (e) => { e.preventDefault(); if (!fileSelectionContainer.classList.contains('hidden')) { dropZone.classList.add('drag-over'); } };
+        const handleDragLeave = (e) => { e.preventDefault(); dropZone.classList.remove('drag-over'); };
+        const handleDrop = (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+            if (!fileSelectionContainer.classList.contains('hidden') && e.dataTransfer.files) {
+                processSelectedFiles(e.dataTransfer.files);
+                e.dataTransfer.clearData();
+            }
+        };
+        
+        const processSelectedFiles = (fileList) => {
+            if (!fileList || fileList.length === 0) return;
+            selectedFiles = Array.from(fileList);
+            const totalSize = selectedFiles.reduce((acc, file) => acc + file.size, 0);
+            fileInfoText.textContent = `${selectedFiles.length} files selected (${formatBytes(totalSize)})`;
+            fileSelectionContainer.classList.add('hidden');
+            fileConfirmationContainer.classList.remove('hidden');
+        };
+
+        const handleFileSelect = (event) => { processSelectedFiles(event.target.files); };
+        const cancelFileSelection = () => {
+            selectedFiles = [];
+            currentFileIndex = 0;
+            fileInput.value = null;
+            fileConfirmationContainer.classList.add('hidden');
+            fileSelectionContainer.classList.remove('hidden');
+        };
+        
+        const startSendingFiles = () => {
+            currentFileIndex = 0;
+            fileConfirmationContainer.classList.add('hidden');
+            progressContainer.classList.remove('hidden');
+            sendNextFile();
+        };
+        
+        const sendNextFile = () => {
+            if (currentFileIndex >= selectedFiles.length) {
+                updateStatus('All files sent successfully.', 'connected');
+                cancelFileSelection();
+                return;
+            }
+            const file = selectedFiles[currentFileIndex];
+            updateStatus(`Sending file ${currentFileIndex + 1} of ${selectedFiles.length}: ${file.name}`, 'progress');
+            fileMetadata = { name: file.name, size: file.size, type: file.type };
+            const metadataPayload = { type: 'metadata', payload: fileMetadata };
+            dataChannel.send(JSON.stringify(metadataPayload));
+            fileReader = new FileReader();
+            let offset = 0;
+            fileReader.onload = (e) => {
+                dataChannel.send(e.target.result);
+                offset += e.target.result.byteLength;
+                updateProgressBar(offset, file.size);
+                if (offset < file.size) {
+                    readSlice(offset);
+                } else {
+                    currentFileIndex++;
+                    sendNextFile();
+                }
+            };
+            const readSlice = (o) => {
+                const slice = file.slice(o, o + CHUNK_SIZE);
+                fileReader.readAsArrayBuffer(slice);
+            };
+            readSlice(0);
+        };
+
+        const sendChatMessage = () => {
+            const message = chatInput.value;
+            if (!message.trim()) return;
+            const chatPayload = { type: 'chat', payload: message };
+            dataChannel.send(JSON.stringify(chatPayload));
+            appendChatMessage(message, 'sent');
+            chatInput.value = '';
+        };
+
+        const appendChatMessage = (message, type) => {
+            const messageEl = document.createElement('p');
+            const prefix = type === 'sent' ? 'You: ' : 'Peer: ';
+            messageEl.textContent = prefix + message;
+            messageEl.className = type === 'sent' ? 'text-right text-indigo-300' : 'text-left text-emerald-300';
+            chatLog.appendChild(messageEl);
+            chatLog.scrollTop = chatLog.scrollHeight;
+        };
+        
+        const handleDataChannelMessage = (event) => {
+            if (typeof event.data === 'string') {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'chat') {
+                        appendChatMessage(data.payload, 'received');
+                    } else if (data.type === 'metadata') {
+                        fileMetadata = data.payload;
+                        receiveBuffer = [];
+                        receivedSize = 0;
+                        progressBar.style.width = '0%';
+                        progressContainer.classList.remove('hidden');
+                        updateStatus(`Receiving file: ${fileMetadata.name}`, 'progress');
+                    }
+                } catch(e) { console.error("Error parsing data message", e); }
+                return;
+            }
+            receiveBuffer.push(event.data);
+            receivedSize += event.data.byteLength;
+            updateProgressBar(receivedSize, fileMetadata.size);
+            if (receivedSize === fileMetadata.size) {
+                const receivedFile = new Blob(receiveBuffer, { type: fileMetadata.type });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(receivedFile);
+                link.download = fileMetadata.name;
+                link.textContent = `${fileMetadata.name} (${formatBytes(fileMetadata.size)})`;
+                link.className = 'w-full block bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3 rounded-lg text-sm text-center';
+                downloadList.appendChild(link);
+                downloadContainer.classList.remove('hidden');
+                updateStatus(`File "${fileMetadata.name}" received. Waiting for next file...`, 'connected');
+            }
+        };
+
+        const shareOrCopyLink = async () => {
+            const urlToShare = shareLinkInput.value;
+            if (navigator.share) {
+                try {
+                    await navigator.share({ title: 'DirectDrop File Share', text: 'Join my secure file transfer session:', url: urlToShare });
+                    copyBtn.textContent = 'Shared!';
+                } catch (error) {
+                    if (error.name === 'NotAllowedError') { console.warn('Share API permission denied. Falling back to copy.'); } 
+                    else { console.error('Error sharing:', error); }
+                    copyToClipboard(urlToShare);
+                }
+            } else { copyToClipboard(urlToShare); }
+        };
+
+        const copyToClipboard = (text) => {
+             shareLinkInput.select();
+             document.execCommand('copy');
+             copyBtn.textContent = 'Copied!';
+             setTimeout(() => { copyBtn.textContent = navigator.share ? 'Share' : 'Copy'; }, 2000);
+        };
+
+        const updateStatus = (text, state = 'waiting') => {
+            statusContainer.classList.remove('bg-gray-700', 'bg-indigo-700', 'bg-green-700', 'bg-red-700');
+            switch (state) {
+                case 'progress': statusContainer.classList.add('bg-indigo-700'); statusSpinner.classList.remove('hidden'); break;
+                case 'connected': statusContainer.classList.add('bg-green-700'); statusSpinner.classList.add('hidden'); break;
+                case 'error': statusContainer.classList.add('bg-red-700'); statusSpinner.classList.add('hidden'); break;
+                case 'waiting': default: statusContainer.classList.add('bg-gray-700'); statusSpinner.classList.remove('hidden'); break;
+            }
+            const textNode = Array.from(statusText.childNodes).find(node => node.nodeType === Node.TEXT_NODE);
+            if (textNode) { textNode.textContent = ` ${text}`; } 
+            else { statusText.appendChild(document.createTextNode(` ${text}`)); }
+        };
+        
+        const updateProgressBar = (value, max) => {
+            const percentage = Math.round((value / max) * 100);
+            progressBar.style.width = `${percentage}%`;
+        };
+
+        const formatBytes = (bytes, decimals = 2) => {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        };
+
+        // --- Start the App ---
+        initialize();
+
+        // Register the Service Worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(registration => {
+                        console.log('ServiceWorker registration successful with scope: ', registration.scope);
+                    })
+                    .catch(err => {
+                        console.log('ServiceWorker registration failed: ', err);
+                    });
+            });
+        }
+    </script>
+</body>
+</html>
 
