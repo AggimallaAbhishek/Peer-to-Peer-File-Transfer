@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>P2P Direct File Share</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body {
@@ -81,6 +82,11 @@
                     </div>
                 </div>
 
+                <!-- NEW: QR Code Display Area -->
+                <div id="qr-code-container" class="hidden mx-auto bg-white p-2 rounded-lg w-40 h-40">
+                    <!-- QR code will be generated here by the library -->
+                </div>
+
                 <div id="status-container" class="text-center p-4 rounded-lg bg-gray-700 transition-colors duration-300">
                     <p id="status-text" class="text-gray-300 flex items-center justify-center">
                         <span id="status-spinner" class="hidden"><div class="lds-ring"><div></div><div></div><div></div><div></div></div></span>
@@ -88,7 +94,7 @@
                     </p>
                 </div>
 
-                <!-- NEW: Chat Interface -->
+                <!-- Chat Interface -->
                 <div id="chat-container" class="hidden w-full">
                     <div id="chat-log" class="h-32 overflow-y-auto bg-gray-900 rounded-t-lg p-3 text-sm space-y-2">
                         <!-- Messages will appear here -->
@@ -163,6 +169,7 @@
         const createBtn = document.getElementById('create-btn');
         const shareLinkInput = document.getElementById('share-link');
         const copyBtn = document.getElementById('copy-btn');
+        const qrCodeContainer = document.getElementById('qr-code-container'); // NEW
         const statusContainer = document.getElementById('status-container');
         const statusText = document.getElementById('status-text');
         const statusSpinner = document.getElementById('status-spinner');
@@ -239,7 +246,22 @@
                 peerConnection.onicecandidate = async (event) => {
                     if (event.candidate) { await addDoc(collection(db, 'rooms', roomId, 'initiatorCandidates'), event.candidate.toJSON()); }
                 };
-                shareLinkInput.value = `${window.location.origin}${window.location.pathname}?id=${roomId}`;
+                
+                const shareLink = `${window.location.origin}${window.location.pathname}?id=${roomId}`;
+                shareLinkInput.value = shareLink;
+                
+                // NEW: Generate and display QR code
+                qrCodeContainer.innerHTML = ''; // Clear previous QR code
+                new QRCode(qrCodeContainer, {
+                    text: shareLink,
+                    width: 144,
+                    height: 144,
+                    colorDark : "#000000",
+                    colorLight : "#ffffff",
+                    correctLevel : QRCode.CorrectLevel.H
+                });
+                qrCodeContainer.classList.remove('hidden');
+
                 window.addEventListener('beforeunload', () => deleteDoc(doc(db, 'rooms', roomId)));
             } catch (error) {
                 console.error("Error creating room:", error);
@@ -341,7 +363,7 @@
             updateStatus(`Sending file ${currentFileIndex + 1} of ${selectedFiles.length}: ${file.name}`, 'progress');
             
             fileMetadata = { name: file.name, size: file.size, type: file.type };
-            const metadataPayload = { type: 'metadata', payload: fileMetadata }; // Wrap in payload
+            const metadataPayload = { type: 'metadata', payload: fileMetadata };
             dataChannel.send(JSON.stringify(metadataPayload));
 
             fileReader = new FileReader();
@@ -364,30 +386,25 @@
             readSlice(0);
         };
 
-        // NEW: Handles sending chat messages
         const sendChatMessage = () => {
             const message = chatInput.value;
             if (!message.trim()) return;
-
             const chatPayload = { type: 'chat', payload: message };
             dataChannel.send(JSON.stringify(chatPayload));
-            
             appendChatMessage(message, 'sent');
             chatInput.value = '';
         };
 
-        // NEW: Appends a message to the chat log
         const appendChatMessage = (message, type) => {
             const messageEl = document.createElement('p');
             const prefix = type === 'sent' ? 'You: ' : 'Peer: ';
             messageEl.textContent = prefix + message;
             messageEl.className = type === 'sent' ? 'text-right text-indigo-300' : 'text-left text-emerald-300';
             chatLog.appendChild(messageEl);
-            chatLog.scrollTop = chatLog.scrollHeight; // Auto-scroll
+            chatLog.scrollTop = chatLog.scrollHeight;
         };
         
         const handleDataChannelMessage = (event) => {
-            // All text-based messages are JSON strings (chat or file metadata)
             if (typeof event.data === 'string') {
                 try {
                     const data = JSON.parse(event.data);
@@ -405,7 +422,6 @@
                 return;
             }
 
-            // If not a string, it's a file chunk (ArrayBuffer)
             receiveBuffer.push(event.data);
             receivedSize += event.data.byteLength;
             updateProgressBar(receivedSize, fileMetadata.size);
