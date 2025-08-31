@@ -76,18 +76,29 @@
                     </div>
                 </div>
 
-                <div id="status-container" class="text-center p-4 rounded-lg bg-gray-700">
+                <div id="status-container" class="text-center p-4 rounded-lg bg-gray-700 transition-colors duration-300">
                     <p id="status-text" class="text-gray-300 flex items-center justify-center">
                         <span id="status-spinner" class="hidden"><div class="lds-ring"><div></div><div></div><div></div><div></div></div></span>
                         Waiting for peer to connect...
                     </p>
                 </div>
 
+                <!-- File Selection -->
                 <div id="file-selection-container" class="hidden">
                      <label for="file-input" class="w-full cursor-pointer bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105 text-center block">
                         Select a File to Send
                     </label>
                     <input type="file" id="file-input" class="hidden">
+                </div>
+
+                <!-- NEW: File Confirmation -->
+                <div id="file-confirmation-container" class="hidden space-y-3 text-center">
+                    <p class="text-gray-300">Ready to send:</p>
+                    <p id="file-info-text" class="font-semibold text-white bg-gray-700 p-3 rounded-lg"></p>
+                    <div class="flex space-x-3">
+                        <button id="cancel-btn" class="w-full bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition">Cancel</button>
+                        <button id="send-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition">Send File</button>
+                    </div>
                 </div>
 
                 <div id="progress-container" class="hidden w-full bg-gray-700 rounded-full h-4">
@@ -121,7 +132,6 @@
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
-                // Adding a TURN server for better connectivity
                 {
                     urls: 'turn:openrelay.metered.ca:80',
                     username: 'openrelayproject',
@@ -137,10 +147,15 @@
         const createBtn = document.getElementById('create-btn');
         const shareLinkInput = document.getElementById('share-link');
         const copyBtn = document.getElementById('copy-btn');
+        const statusContainer = document.getElementById('status-container');
         const statusText = document.getElementById('status-text');
         const statusSpinner = document.getElementById('status-spinner');
         const fileSelectionContainer = document.getElementById('file-selection-container');
         const fileInput = document.getElementById('file-input');
+        const fileConfirmationContainer = document.getElementById('file-confirmation-container');
+        const fileInfoText = document.getElementById('file-info-text');
+        const sendBtn = document.getElementById('send-btn');
+        const cancelBtn = document.getElementById('cancel-btn');
         const progressContainer = document.getElementById('progress-container');
         const progressBar = document.getElementById('progress-bar');
         const downloadContainer = document.getElementById('download-container');
@@ -155,6 +170,7 @@
         let receivedSize = 0;
         let fileMetadata = null;
         let isInitiator = false;
+        let selectedFile = null; // NEW: Store the selected file temporarily
 
         // --- Core Logic ---
 
@@ -169,15 +185,16 @@
             createBtn.addEventListener('click', createRoom);
             copyBtn.addEventListener('click', shareOrCopyLink);
             fileInput.addEventListener('change', handleFileSelect);
+            sendBtn.addEventListener('click', sendFile);
+            cancelBtn.addEventListener('click', cancelFileSelection);
         };
         
         const createRoom = async () => {
             isInitiator = true;
             startScreen.classList.add('hidden');
             shareScreen.classList.remove('hidden');
-            statusSpinner.classList.remove('hidden');
-
-            // NEW: Check for Web Share API and update button text
+            updateStatus('Waiting for peer to connect...', 'waiting');
+            
             if (navigator.share) {
                 copyBtn.textContent = 'Share';
             }
@@ -185,59 +202,40 @@
             try {
                 const roomRef = doc(collection(db, 'rooms'));
                 const roomId = roomRef.id;
-
-                // 1. Initialize Peer Connection and Data Channel
                 peerConnection = new RTCPeerConnection(servers);
                 dataChannel = peerConnection.createDataChannel('file-transfer');
                 setupDataChannel();
-
-                // 2. Create Offer and Set Local Description
                 const offer = await peerConnection.createOffer();
                 await peerConnection.setLocalDescription(offer);
-                
-                // 3. CRITICAL: Create the Firestore document NOW.
                 await setDoc(roomRef, { offer: { sdp: offer.sdp, type: offer.type } });
 
-                // 4. NOW that the document exists, attach all listeners and handlers.
-                
-                // Listen for the peer's answer on the main document
                 onSnapshot(roomRef, (doc) => {
                     const data = doc.data();
                     if (!peerConnection.currentRemoteDescription && data?.answer) {
-                        const answerDescription = new RTCSessionDescription(data.answer);
-                        peerConnection.setRemoteDescription(answerDescription);
+                        peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
                     }
                 });
 
-                // Listen for remote ICE candidates in the subcollection
                 const remoteCandidateCollection = collection(db, 'rooms', roomId, 'receiverCandidates');
                 onSnapshot(remoteCandidateCollection, (snapshot) => {
                     snapshot.docChanges().forEach((change) => {
                         if (change.type === 'added') {
-                            const candidate = new RTCIceCandidate(change.doc.data());
-                            peerConnection.addIceCandidate(candidate).catch(e => console.error("Error adding received ice candidate", e));
+                            peerConnection.addIceCandidate(new RTCIceCandidate(change.doc.data()));
                         }
                     });
                 });
 
-                // Handle local ICE candidates and write them to the subcollection
                 peerConnection.onicecandidate = async (event) => {
                     if (event.candidate) {
-                        const candidateCollection = collection(db, 'rooms', roomId, 'initiatorCandidates');
-                        await addDoc(candidateCollection, event.candidate.toJSON());
+                        await addDoc(collection(db, 'rooms', roomId, 'initiatorCandidates'), event.candidate.toJSON());
                     }
                 };
 
-                // 5. Update UI with the shareable link
-                const shareLink = `${window.location.origin}${window.location.pathname}?id=${roomId}`;
-                shareLinkInput.value = shareLink;
-
-                // 6. Setup cleanup function for when the user closes the page
+                shareLinkInput.value = `${window.location.origin}${window.location.pathname}?id=${roomId}`;
                 window.addEventListener('beforeunload', () => deleteDoc(doc(db, 'rooms', roomId)));
-
             } catch (error) {
                 console.error("Error creating room:", error);
-                updateStatus("Error: Could not create a share link. Check console.");
+                updateStatus("Error: Could not create a share link.", 'error');
             }
         };
 
@@ -245,38 +243,30 @@
             isInitiator = false;
             startScreen.classList.add('hidden');
             shareScreen.classList.remove('hidden');
-            statusSpinner.classList.remove('hidden');
+            updateStatus('Connecting to peer...', 'progress');
             
             try {
                 const roomRef = doc(db, 'rooms', roomId);
                 const roomSnap = await getDoc(roomRef);
-
                 if (!roomSnap.exists()) {
-                    updateStatus('Error: Room does not exist or has expired.');
+                    updateStatus('Error: Room does not exist.', 'error');
                     return;
                 }
 
                 peerConnection = new RTCPeerConnection(servers);
-
-                // Listen for remote ICE candidates
                 const remoteCandidateCollection = collection(db, 'rooms', roomId, 'initiatorCandidates');
-                 onSnapshot(remoteCandidateCollection, (snapshot) => {
+                onSnapshot(remoteCandidateCollection, (snapshot) => {
                     snapshot.docChanges().forEach((change) => {
                         if (change.type === 'added') {
-                            const candidate = new RTCIceCandidate(change.doc.data());
-                            peerConnection.addIceCandidate(candidate).catch(e => console.error("Error adding received ice candidate", e));
+                            peerConnection.addIceCandidate(new RTCIceCandidate(change.doc.data()));
                         }
                     });
                 });
-
-                // Handle local ICE candidates
                 peerConnection.onicecandidate = async (event) => {
                     if (event.candidate) {
-                        const candidateCollection = collection(db, 'rooms', roomId, 'receiverCandidates');
-                        await addDoc(candidateCollection, event.candidate.toJSON());
+                        await addDoc(collection(db, 'rooms', roomId, 'receiverCandidates'), event.candidate.toJSON());
                     }
                 };
-                
                 peerConnection.ondatachannel = (event) => {
                     dataChannel = event.channel;
                     setupDataChannel();
@@ -284,28 +274,29 @@
 
                 const offer = roomSnap.data().offer;
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-                
                 const answer = await peerConnection.createAnswer();
                 await peerConnection.setLocalDescription(answer);
-
                 await updateDoc(roomRef, { answer: { sdp: answer.sdp, type: answer.type } });
 
                 window.addEventListener('beforeunload', () => deleteDoc(doc(db, 'rooms', roomId)));
             } catch (error) {
                 console.error("Error joining room:", error);
-                updateStatus("Error: Could not join the session. Check console.");
+                updateStatus("Error: Could not join session.", 'error');
             }
         };
         
         const setupDataChannel = () => {
             dataChannel.onopen = () => {
-                updateStatus('Connected to peer!');
-                if(isInitiator) {
+                updateStatus('Connected to peer!', 'connected');
+                if (isInitiator) {
                     fileSelectionContainer.classList.remove('hidden');
                 }
             };
             dataChannel.onclose = () => {
-                updateStatus('Connection closed.');
+                updateStatus('Connection closed.', 'waiting');
+                fileSelectionContainer.classList.add('hidden');
+                fileConfirmationContainer.classList.add('hidden');
+                progressContainer.classList.add('hidden');
             };
             dataChannel.onmessage = handleDataChannelMessage;
         };
@@ -314,9 +305,27 @@
             const file = event.target.files[0];
             if (!file) return;
 
+            selectedFile = file; // Store the file
+            fileInfoText.textContent = `${file.name} (${formatBytes(file.size)})`;
             fileSelectionContainer.classList.add('hidden');
+            fileConfirmationContainer.classList.remove('hidden');
+        };
+
+        const cancelFileSelection = () => {
+            selectedFile = null;
+            fileInput.value = null; // Reset the file input
+            fileConfirmationContainer.classList.add('hidden');
+            fileSelectionContainer.classList.remove('hidden');
+        };
+        
+        const sendFile = () => {
+            if (!selectedFile) return;
+
+            const file = selectedFile;
+            fileConfirmationContainer.classList.add('hidden');
             progressContainer.classList.remove('hidden');
-            
+            updateStatus(`Sending file: ${file.name}`, 'progress');
+
             fileMetadata = { name: file.name, size: file.size, type: file.type };
             dataChannel.send(JSON.stringify(fileMetadata));
 
@@ -326,11 +335,13 @@
                 dataChannel.send(e.target.result);
                 offset += e.target.result.byteLength;
                 updateProgressBar(offset, file.size);
-
                 if (offset < file.size) {
                     readSlice(offset);
                 } else {
-                    updateStatus(`File "${file.name}" sent successfully.`);
+                    updateStatus(`File "${file.name}" sent successfully.`, 'connected');
+                    selectedFile = null; // Clear after sending
+                    fileInput.value = null;
+                    fileSelectionContainer.classList.remove('hidden'); // Show select button again
                 }
             };
             const readSlice = (o) => {
@@ -346,7 +357,7 @@
                 receiveBuffer = [];
                 receivedSize = 0;
                 progressContainer.classList.remove('hidden');
-                updateStatus(`Receiving file: ${fileMetadata.name}`);
+                updateStatus(`Receiving file: ${fileMetadata.name}`, 'progress');
                 return;
             }
 
@@ -360,40 +371,30 @@
 
                 downloadLink.href = URL.createObjectURL(receivedFile);
                 downloadLink.download = fileMetadata.name;
-                downloadFilename.textContent = `Received: ${fileMetadata.name} (${(fileMetadata.size / 1024 / 1024).toFixed(2)} MB)`;
+                downloadFilename.textContent = `Received: ${fileMetadata.name} (${formatBytes(fileMetadata.size)})`;
                 
                 progressContainer.classList.add('hidden');
                 downloadContainer.classList.remove('hidden');
-                updateStatus(`File "${fileMetadata.name}" received successfully.`);
+                updateStatus(`File "${fileMetadata.name}" received successfully.`, 'connected');
             }
         };
 
         // --- UI Helper Functions ---
-        // UPDATED: This function now handles both Share and Copy
         const shareOrCopyLink = async () => {
             const urlToShare = shareLinkInput.value;
-
             if (navigator.share) {
-                // Use Web Share API on mobile
                 try {
-                    await navigator.share({
-                        title: 'DirectDrop File Share',
-                        text: 'Click the link to join my secure file transfer session:',
-                        url: urlToShare,
-                    });
+                    await navigator.share({ title: 'DirectDrop File Share', text: 'Join my secure file transfer session:', url: urlToShare });
                     copyBtn.textContent = 'Shared!';
                 } catch (error) {
-                    // This block is the FIX
                     if (error.name === 'NotAllowedError') {
-                        console.warn('Share API permission denied. This can happen if the feature is blocked in your browser or this environment. Falling back to copy.');
+                        console.warn('Share API permission denied. Falling back to copy.');
                     } else {
                         console.error('Error sharing:', error);
                     }
-                    // Fallback to copy functionality in case of any error
                     copyToClipboard(urlToShare);
                 }
             } else {
-                // Fallback to clipboard on desktop
                 copyToClipboard(urlToShare);
             }
         };
@@ -405,20 +406,51 @@
              setTimeout(() => { copyBtn.textContent = navigator.share ? 'Share' : 'Copy'; }, 2000);
         };
 
-        const updateStatus = (text) => {
-            statusSpinner.classList.add('hidden');
-            // Ensure statusText is just the text content, not the spinner element
-            const statusContent = statusText.childNodes[1]; 
-            if(statusContent) {
-                statusContent.textContent = ` ${text}`;
+        // UPDATED: Centralized status and color management
+        const updateStatus = (text, state = 'waiting') => {
+            // Remove all color classes
+            statusContainer.classList.remove('bg-gray-700', 'bg-indigo-700', 'bg-green-700', 'bg-red-700');
+            
+            switch (state) {
+                case 'progress':
+                    statusContainer.classList.add('bg-indigo-700');
+                    statusSpinner.classList.remove('hidden');
+                    break;
+                case 'connected':
+                    statusContainer.classList.add('bg-green-700');
+                    statusSpinner.classList.add('hidden');
+                    break;
+                case 'error':
+                    statusContainer.classList.add('bg-red-700');
+                    statusSpinner.classList.add('hidden');
+                    break;
+                case 'waiting':
+                default:
+                    statusContainer.classList.add('bg-gray-700');
+                    statusSpinner.classList.remove('hidden'); // Show spinner while waiting
+                    break;
+            }
+            
+            const textNode = Array.from(statusText.childNodes).find(node => node.nodeType === Node.TEXT_NODE);
+            if (textNode) {
+                textNode.textContent = ` ${text}`;
             } else {
-                statusText.textContent = text;
+                statusText.appendChild(document.createTextNode(` ${text}`));
             }
         };
         
         const updateProgressBar = (value, max) => {
             const percentage = Math.round((value / max) * 100);
             progressBar.style.width = `${percentage}%`;
+        };
+
+        const formatBytes = (bytes, decimals = 2) => {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
         };
 
         // --- Start the App ---
