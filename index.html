@@ -55,7 +55,7 @@
 <body class="bg-gray-900 text-white">
 
     <div class="app-container flex items-center justify-center p-4">
-        <div id="drop-zone" class="w-full max-w-md p-8 space-y-6 bg-gray-800 rounded-2xl shadow-xl transition-all duration-200">
+        <div id="drop-zone" class="w-full max-w-md p-8 space-y-4 bg-gray-800 rounded-2xl shadow-xl transition-all duration-200">
             <!-- Header -->
             <div>
                 <h1 class="text-3xl font-bold text-center text-indigo-400">DirectDrop</h1>
@@ -88,6 +88,17 @@
                     </p>
                 </div>
 
+                <!-- NEW: Chat Interface -->
+                <div id="chat-container" class="hidden w-full">
+                    <div id="chat-log" class="h-32 overflow-y-auto bg-gray-900 rounded-t-lg p-3 text-sm space-y-2">
+                        <!-- Messages will appear here -->
+                    </div>
+                    <div class="flex">
+                        <input type="text" id="chat-input" placeholder="Type a message..." class="flex-1 bg-gray-700 border-gray-600 text-gray-200 p-2 focus:ring-indigo-500 focus:border-indigo-500 rounded-bl-lg">
+                        <button id="chat-send-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-br-lg">Send</button>
+                    </div>
+                </div>
+
                 <!-- File Selection -->
                 <div id="file-selection-container" class="hidden">
                      <label for="file-input" class="w-full cursor-pointer bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105 text-center block">
@@ -110,7 +121,7 @@
                     <div id="progress-bar" class="bg-indigo-500 h-4 rounded-full" style="width: 0%"></div>
                 </div>
 
-                 <!-- MODIFIED: Download List Container -->
+                 <!-- Download List Container -->
                  <div id="download-container" class="hidden text-left">
                     <p class="font-semibold text-gray-300 mb-2">Received Files:</p>
                     <div id="download-list" class="space-y-2 max-h-48 overflow-y-auto"></div>
@@ -155,6 +166,10 @@
         const statusContainer = document.getElementById('status-container');
         const statusText = document.getElementById('status-text');
         const statusSpinner = document.getElementById('status-spinner');
+        const chatContainer = document.getElementById('chat-container');
+        const chatLog = document.getElementById('chat-log');
+        const chatInput = document.getElementById('chat-input');
+        const chatSendBtn = document.getElementById('chat-send-btn');
         const fileSelectionContainer = document.getElementById('file-selection-container');
         const fileInput = document.getElementById('file-input');
         const fileConfirmationContainer = document.getElementById('file-confirmation-container');
@@ -174,17 +189,18 @@
         let receivedSize = 0;
         let fileMetadata = null;
         let isInitiator = false;
-        let selectedFiles = []; // MODIFIED: Now an array for the file queue
-        let currentFileIndex = 0; // NEW: To track which file is being sent
+        let selectedFiles = [];
+        let currentFileIndex = 0;
 
         // --- Core Logic ---
-
         const initialize = () => {
             const urlParams = new URLSearchParams(window.location.search);
             const roomId = urlParams.get('id');
             if (roomId) { joinRoom(roomId); }
             createBtn.addEventListener('click', createRoom);
             copyBtn.addEventListener('click', shareOrCopyLink);
+            chatSendBtn.addEventListener('click', sendChatMessage);
+            chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sendChatMessage(); } });
             fileInput.addEventListener('change', handleFileSelect);
             sendBtn.addEventListener('click', startSendingFiles);
             cancelBtn.addEventListener('click', cancelFileSelection);
@@ -266,10 +282,12 @@
         const setupDataChannel = () => {
             dataChannel.onopen = () => {
                 updateStatus('Connected to peer!', 'connected');
+                chatContainer.classList.remove('hidden');
                 if (isInitiator) { fileSelectionContainer.classList.remove('hidden'); }
             };
             dataChannel.onclose = () => {
                 updateStatus('Connection closed.', 'waiting');
+                chatContainer.classList.add('hidden');
                 fileSelectionContainer.classList.add('hidden');
                 fileConfirmationContainer.classList.add('hidden');
                 progressContainer.classList.add('hidden');
@@ -277,10 +295,7 @@
             dataChannel.onmessage = handleDataChannelMessage;
         };
 
-        const handleDragOver = (e) => {
-            e.preventDefault();
-            if (!fileSelectionContainer.classList.contains('hidden')) { dropZone.classList.add('drag-over'); }
-        };
+        const handleDragOver = (e) => { e.preventDefault(); if (!fileSelectionContainer.classList.contains('hidden')) { dropZone.classList.add('drag-over'); } };
         const handleDragLeave = (e) => { e.preventDefault(); dropZone.classList.remove('drag-over'); };
         const handleDrop = (e) => {
             e.preventDefault();
@@ -290,11 +305,10 @@
                 e.dataTransfer.clearData();
             }
         };
-
-        // MODIFIED to handle multiple files
+        
         const processSelectedFiles = (fileList) => {
             if (!fileList || fileList.length === 0) return;
-            selectedFiles = Array.from(fileList); // Convert FileList to Array
+            selectedFiles = Array.from(fileList);
             const totalSize = selectedFiles.reduce((acc, file) => acc + file.size, 0);
             fileInfoText.textContent = `${selectedFiles.length} files selected (${formatBytes(totalSize)})`;
             fileSelectionContainer.classList.add('hidden');
@@ -302,7 +316,6 @@
         };
 
         const handleFileSelect = (event) => { processSelectedFiles(event.target.files); };
-
         const cancelFileSelection = () => {
             selectedFiles = [];
             currentFileIndex = 0;
@@ -311,7 +324,6 @@
             fileSelectionContainer.classList.remove('hidden');
         };
         
-        // NEW: Kicks off the sending process
         const startSendingFiles = () => {
             currentFileIndex = 0;
             fileConfirmationContainer.classList.add('hidden');
@@ -319,19 +331,18 @@
             sendNextFile();
         };
         
-        // MODIFIED: Sends one file from the queue, then calls itself for the next one
         const sendNextFile = () => {
             if (currentFileIndex >= selectedFiles.length) {
                 updateStatus('All files sent successfully.', 'connected');
-                cancelFileSelection(); // Reset UI
+                cancelFileSelection();
                 return;
             }
-
             const file = selectedFiles[currentFileIndex];
             updateStatus(`Sending file ${currentFileIndex + 1} of ${selectedFiles.length}: ${file.name}`, 'progress');
             
             fileMetadata = { name: file.name, size: file.size, type: file.type };
-            dataChannel.send(JSON.stringify(fileMetadata));
+            const metadataPayload = { type: 'metadata', payload: fileMetadata }; // Wrap in payload
+            dataChannel.send(JSON.stringify(metadataPayload));
 
             fileReader = new FileReader();
             let offset = 0;
@@ -342,8 +353,8 @@
                 if (offset < file.size) {
                     readSlice(offset);
                 } else {
-                    currentFileIndex++; // Move to the next file
-                    sendNextFile(); // Send the next file in the queue
+                    currentFileIndex++;
+                    sendNextFile();
                 }
             };
             const readSlice = (o) => {
@@ -352,33 +363,61 @@
             };
             readSlice(0);
         };
+
+        // NEW: Handles sending chat messages
+        const sendChatMessage = () => {
+            const message = chatInput.value;
+            if (!message.trim()) return;
+
+            const chatPayload = { type: 'chat', payload: message };
+            dataChannel.send(JSON.stringify(chatPayload));
+            
+            appendChatMessage(message, 'sent');
+            chatInput.value = '';
+        };
+
+        // NEW: Appends a message to the chat log
+        const appendChatMessage = (message, type) => {
+            const messageEl = document.createElement('p');
+            const prefix = type === 'sent' ? 'You: ' : 'Peer: ';
+            messageEl.textContent = prefix + message;
+            messageEl.className = type === 'sent' ? 'text-right text-indigo-300' : 'text-left text-emerald-300';
+            chatLog.appendChild(messageEl);
+            chatLog.scrollTop = chatLog.scrollHeight; // Auto-scroll
+        };
         
-        // MODIFIED to handle multiple incoming files
         const handleDataChannelMessage = (event) => {
+            // All text-based messages are JSON strings (chat or file metadata)
             if (typeof event.data === 'string') {
-                fileMetadata = JSON.parse(event.data);
-                receiveBuffer = [];
-                receivedSize = 0;
-                progressBar.style.width = '0%'; // Reset progress bar for new file
-                progressContainer.classList.remove('hidden');
-                updateStatus(`Receiving file: ${fileMetadata.name}`, 'progress');
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'chat') {
+                        appendChatMessage(data.payload, 'received');
+                    } else if (data.type === 'metadata') {
+                        fileMetadata = data.payload;
+                        receiveBuffer = [];
+                        receivedSize = 0;
+                        progressBar.style.width = '0%';
+                        progressContainer.classList.remove('hidden');
+                        updateStatus(`Receiving file: ${fileMetadata.name}`, 'progress');
+                    }
+                } catch(e) { console.error("Error parsing data message", e); }
                 return;
             }
+
+            // If not a string, it's a file chunk (ArrayBuffer)
             receiveBuffer.push(event.data);
             receivedSize += event.data.byteLength;
             updateProgressBar(receivedSize, fileMetadata.size);
 
             if (receivedSize === fileMetadata.size) {
                 const receivedFile = new Blob(receiveBuffer, { type: fileMetadata.type });
-                
-                // NEW: Create and append a new download link for each file
                 const link = document.createElement('a');
                 link.href = URL.createObjectURL(receivedFile);
                 link.download = fileMetadata.name;
                 link.textContent = `${fileMetadata.name} (${formatBytes(fileMetadata.size)})`;
                 link.className = 'w-full block bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3 rounded-lg text-sm text-center';
                 downloadList.appendChild(link);
-                
                 downloadContainer.classList.remove('hidden');
                 updateStatus(`File "${fileMetadata.name}" received. Waiting for next file...`, 'connected');
             }
