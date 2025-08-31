@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>P2P Direct File Share</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Simple loader for status updates */
+        .lds-ring {
+            display: inline-block;
+            position: relative;
+            width: 20px;
+            height: 20px;
+            margin-right: 8px;
+        }
+        .lds-ring div {
+            box-sizing: border-box;
+            display: block;
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            margin: 2px;
+            border: 2px solid #fff;
+            border-radius: 50%;
+            animation: lds-ring 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+            border-color: #fff transparent transparent transparent;
+        }
+        .lds-ring div:nth-child(1) { animation-delay: -0.45s; }
+        .lds-ring div:nth-child(2) { animation-delay: -0.3s; }
+        .lds-ring div:nth-child(3) { animation-delay: -0.15s; }
+        @keyframes lds-ring {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* Ensures the app uses the full screen height on mobile */
+        html, body {
+            height: 100%;
+            overflow: hidden;
+        }
+        .app-container {
+             height: 100%;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white">
+
+    <div class="app-container flex items-center justify-center p-4">
+        <div class="w-full max-w-md p-8 space-y-6 bg-gray-800 rounded-2xl shadow-xl">
+            <!-- Header -->
+            <div>
+                <h1 class="text-3xl font-bold text-center text-indigo-400">DirectDrop</h1>
+                <p class="text-center text-gray-400 mt-2">Secure Peer-to-Peer File Sharing</p>
+            </div>
+
+            <!-- Initial Screen -->
+            <div id="start-screen" class="text-center">
+                <button id="create-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105">
+                    Create Share Link
+                </button>
+            </div>
+            
+            <!-- Sharing Screen -->
+            <div id="share-screen" class="hidden space-y-4">
+                <div>
+                    <label class="font-semibold text-gray-300">Share this link with your peer:</label>
+                    <div class="mt-2 flex rounded-lg shadow-sm">
+                        <input type="text" id="share-link" readonly class="flex-1 block w-full rounded-none rounded-l-md bg-gray-700 border-gray-600 text-gray-200 p-3 focus:ring-indigo-500 focus:border-indigo-500">
+                        <button id="copy-btn" class="inline-flex items-center px-4 py-2 border border-l-0 border-gray-600 text-sm font-medium rounded-r-md text-white bg-gray-600 hover:bg-gray-500">
+                            Copy
+                        </button>
+                    </div>
+                </div>
+
+                <div id="status-container" class="text-center p-4 rounded-lg bg-gray-700">
+                    <p id="status-text" class="text-gray-300 flex items-center justify-center">
+                        <span id="status-spinner" class="hidden"><div class="lds-ring"><div></div><div></div><div></div><div></div></div></span>
+                        Waiting for peer to connect...
+                    </p>
+                </div>
+
+                <div id="file-selection-container" class="hidden">
+                     <label for="file-input" class="w-full cursor-pointer bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105 text-center block">
+                        Select a File to Send
+                    </label>
+                    <input type="file" id="file-input" class="hidden">
+                </div>
+
+                <div id="progress-container" class="hidden w-full bg-gray-700 rounded-full h-4">
+                    <div id="progress-bar" class="bg-indigo-500 h-4 rounded-full" style="width: 0%"></div>
+                </div>
+
+                 <div id="download-container" class="text-center hidden">
+                    <p id="download-filename" class="text-gray-300 mb-2"></p>
+                    <a id="download-link" class="w-full block bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105">
+                        Download File
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // --- Firebase Configuration ---
+        const firebaseConfig = JSON.parse(atob("eyJhcGlLZXkiOiJBSXphU3lBdTFLZUhVV2ExQTd6djhINHNNTmpCNnpnNE9SOVlWMmMiLCJhdXRoRG9tYWluIjoicDJwLWZpbGUtdHJhbnNmZXItYjQyYzUuZmlyZWJhc2VhcHAuY29tIiwicHJvamVjdElkIjoicDJwLWZpbGUtdHJhbnNmZXItYjQyYzUiLCJzdG9yYWdlQnVja2V0IjoicDJwLWZpbGUtdHJhbnNmZXItYjQyYzUuYXBwc3BvdC5jb20iLCJtZXNzYWdpbmdTZW5kZXJJZCI6IjI0NDg5NTM1MTgxNiJ9"));
+
+        // Import Firebase modules
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, addDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        
+        // --- WebRTC Configuration ---
+        const servers = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                {
+                    urls: 'turn:openrelay.metered.ca:80',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject',
+                },
+            ],
+        };
+        const CHUNK_SIZE = 64 * 1024; // 64KB
+
+        // --- DOM Elements ---
+        const startScreen = document.getElementById('start-screen');
+        const shareScreen = document.getElementById('share-screen');
+        const createBtn = document.getElementById('create-btn');
+        const shareLinkInput = document.getElementById('share-link');
+        const copyBtn = document.getElementById('copy-btn');
+        const statusText = document.getElementById('status-text');
+        const statusSpinner = document.getElementById('status-spinner');
+        const fileSelectionContainer = document.getElementById('file-selection-container');
+        const fileInput = document.getElementById('file-input');
+        const progressContainer = document.getElementById('progress-container');
+        const progressBar = document.getElementById('progress-bar');
+        const downloadContainer = document.getElementById('download-container');
+        const downloadFilename = document.getElementById('download-filename');
+        const downloadLink = document.getElementById('download-link');
+
+        // --- Global State ---
+        let peerConnection;
+        let dataChannel;
+        let fileReader;
+        let receiveBuffer = [];
+        let receivedSize = 0;
+        let fileMetadata = null;
+        let isInitiator = false;
+
+        // --- Core Logic ---
+
+        const initialize = () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const roomId = urlParams.get('id');
+
+            if (roomId) {
+                joinRoom(roomId);
+            }
+
+            createBtn.addEventListener('click', createRoom);
+            copyBtn.addEventListener('click', copyShareLink);
+            fileInput.addEventListener('change', handleFileSelect);
+        };
+        
+        const createPeerConnection = (roomId) => {
+            peerConnection = new RTCPeerConnection(servers);
+
+            // This handler is now set up in the main create/join functions
+            // after the document is confirmed to exist.
+            
+            // This listener is also set up after the document is confirmed to exist.
+        };
+        
+        const createRoom = async () => {
+            isInitiator = true;
+            startScreen.classList.add('hidden');
+            shareScreen.classList.remove('hidden');
+            statusSpinner.classList.remove('hidden');
+
+            try {
+                const roomRef = doc(collection(db, 'rooms'));
+                const roomId = roomRef.id;
+
+                // 1. Initialize Peer Connection and Data Channel
+                peerConnection = new RTCPeerConnection(servers);
+                dataChannel = peerConnection.createDataChannel('file-transfer');
+                setupDataChannel();
+
+                // 2. Create Offer and Set Local Description
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                
+                // 3. CRITICAL: Create the Firestore document NOW.
+                await setDoc(roomRef, { offer: { sdp: offer.sdp, type: offer.type } });
+
+                // 4. NOW that the document exists, attach all listeners and handlers.
+                
+                // Listen for the peer's answer on the main document
+                onSnapshot(roomRef, (doc) => {
+                    const data = doc.data();
+                    if (!peerConnection.currentRemoteDescription && data?.answer) {
+                        const answerDescription = new RTCSessionDescription(data.answer);
+                        peerConnection.setRemoteDescription(answerDescription);
+                    }
+                });
+
+                // Listen for remote ICE candidates in the subcollection
+                const remoteCandidateCollection = collection(db, 'rooms', roomId, 'receiverCandidates');
+                onSnapshot(remoteCandidateCollection, (snapshot) => {
+                    snapshot.docChanges().forEach((change) => {
+                        if (change.type === 'added') {
+                            const candidate = new RTCIceCandidate(change.doc.data());
+                            peerConnection.addIceCandidate(candidate).catch(e => console.error("Error adding received ice candidate", e));
+                        }
+                    });
+                });
+
+                // Handle local ICE candidates and write them to the subcollection
+                peerConnection.onicecandidate = async (event) => {
+                    if (event.candidate) {
+                        const candidateCollection = collection(db, 'rooms', roomId, 'initiatorCandidates');
+                        await addDoc(candidateCollection, event.candidate.toJSON());
+                    }
+                };
+
+                // 5. Update UI with the shareable link
+                const shareLink = `${window.location.origin}${window.location.pathname}?id=${roomId}`;
+                shareLinkInput.value = shareLink;
+
+                // 6. Setup cleanup function for when the user closes the page
+                window.addEventListener('beforeunload', () => deleteDoc(doc(db, 'rooms', roomId)));
+
+            } catch (error) {
+                console.error("Error creating room:", error);
+                updateStatus("Error: Could not create a share link. Check console.");
+            }
+        };
+
+        const joinRoom = async (roomId) => {
+            isInitiator = false;
+            startScreen.classList.add('hidden');
+            shareScreen.classList.remove('hidden');
+            statusSpinner.classList.remove('hidden');
+            
+            try {
+                const roomRef = doc(db, 'rooms', roomId);
+                const roomSnap = await getDoc(roomRef);
+
+                if (!roomSnap.exists()) {
+                    updateStatus('Error: Room does not exist or has expired.');
+                    return;
+                }
+
+                peerConnection = new RTCPeerConnection(servers);
+
+                // Listen for remote ICE candidates
+                const remoteCandidateCollection = collection(db, 'rooms', roomId, 'initiatorCandidates');
+                 onSnapshot(remoteCandidateCollection, (snapshot) => {
+                    snapshot.docChanges().forEach((change) => {
+                        if (change.type === 'added') {
+                            const candidate = new RTCIceCandidate(change.doc.data());
+                            peerConnection.addIceCandidate(candidate).catch(e => console.error("Error adding received ice candidate", e));
+                        }
+                    });
+                });
+
+                // Handle local ICE candidates
+                peerConnection.onicecandidate = async (event) => {
+                    if (event.candidate) {
+                        const candidateCollection = collection(db, 'rooms', roomId, 'receiverCandidates');
+                        await addDoc(candidateCollection, event.candidate.toJSON());
+                    }
+                };
+                
+                peerConnection.ondatachannel = (event) => {
+                    dataChannel = event.channel;
+                    setupDataChannel();
+                };
+
+                const offer = roomSnap.data().offer;
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+                
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+
+                await updateDoc(roomRef, { answer: { sdp: answer.sdp, type: answer.type } });
+
+                window.addEventListener('beforeunload', () => deleteDoc(doc(db, 'rooms', roomId)));
+            } catch (error) {
+                console.error("Error joining room:", error);
+                updateStatus("Error: Could not join the session. Check console.");
+            }
+        };
+        
+        const setupDataChannel = () => {
+            dataChannel.onopen = () => {
+                updateStatus('Connected to peer!');
+                if(isInitiator) {
+                    fileSelectionContainer.classList.remove('hidden');
+                }
+            };
+            dataChannel.onclose = () => {
+                updateStatus('Connection closed.');
+            };
+            dataChannel.onmessage = handleDataChannelMessage;
+        };
+
+        const handleFileSelect = (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            fileSelectionContainer.classList.add('hidden');
+            progressContainer.classList.remove('hidden');
+            
+            fileMetadata = { name: file.name, size: file.size, type: file.type };
+            dataChannel.send(JSON.stringify(fileMetadata));
+
+            fileReader = new FileReader();
+            let offset = 0;
+            fileReader.onload = (e) => {
+                dataChannel.send(e.target.result);
+                offset += e.target.result.byteLength;
+                updateProgressBar(offset, file.size);
+
+                if (offset < file.size) {
+                    readSlice(offset);
+                } else {
+                    updateStatus(`File "${file.name}" sent successfully.`);
+                }
+            };
+            const readSlice = (o) => {
+                const slice = file.slice(o, o + CHUNK_SIZE);
+                fileReader.readAsArrayBuffer(slice);
+            };
+            readSlice(0);
+        };
+        
+        const handleDataChannelMessage = (event) => {
+            if (typeof event.data === 'string') {
+                fileMetadata = JSON.parse(event.data);
+                receiveBuffer = [];
+                receivedSize = 0;
+                progressContainer.classList.remove('hidden');
+                updateStatus(`Receiving file: ${fileMetadata.name}`);
+                return;
+            }
+
+            receiveBuffer.push(event.data);
+            receivedSize += event.data.byteLength;
+            updateProgressBar(receivedSize, fileMetadata.size);
+
+            if (receivedSize === fileMetadata.size) {
+                const receivedFile = new Blob(receiveBuffer, { type: fileMetadata.type });
+                receiveBuffer = [];
+
+                downloadLink.href = URL.createObjectURL(receivedFile);
+                downloadLink.download = fileMetadata.name;
+                downloadFilename.textContent = `Received: ${fileMetadata.name} (${(fileMetadata.size / 1024 / 1024).toFixed(2)} MB)`;
+                
+                progressContainer.classList.add('hidden');
+                downloadContainer.classList.remove('hidden');
+                updateStatus(`File "${fileMetadata.name}" received successfully.`);
+            }
+        };
+
+        // --- UI Helper Functions ---
+        const copyShareLink = () => {
+            shareLinkInput.select();
+            document.execCommand('copy');
+            copyBtn.textContent = 'Copied!';
+            setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
+        };
+
+        const updateStatus = (text) => {
+            statusSpinner.classList.add('hidden');
+            statusText.textContent = text;
+        };
+        
+        const updateProgressBar = (value, max) => {
+            const percentage = Math.round((value / max) * 100);
+            progressBar.style.width = `${percentage}%`;
+        };
+
+        // --- Start the App ---
+        initialize();
+
+    </script>
+</body>
+</html>
+
