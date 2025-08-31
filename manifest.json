@@ -1,0 +1,22 @@
+{
+    "name": "DirectDrop P2P Share",
+    "short_name": "DirectDrop",
+    "description": "Secure Peer-to-Peer File Sharing",
+    "start_url": ".",
+    "display": "standalone",
+    "background_color": "#111827",
+    "theme_color": "#4f46e5",
+    "icons": [
+        {
+            "src": "https://placehold.co/192x192/4f46e5/ffffff?text=DD",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "https://placehold.co/512x512/4f46e5/ffffff?text=DD",
+            "sizes": "512x512",
+            "type": "image/png"
+        }
+    ]
+}
+
