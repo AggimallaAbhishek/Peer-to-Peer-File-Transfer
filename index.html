@@ -121,6 +121,7 @@
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
+                // Adding a TURN server for better connectivity
                 {
                     urls: 'turn:openrelay.metered.ca:80',
                     username: 'openrelayproject',
@@ -166,17 +167,8 @@
             }
 
             createBtn.addEventListener('click', createRoom);
-            copyBtn.addEventListener('click', copyShareLink);
+            copyBtn.addEventListener('click', shareOrCopyLink);
             fileInput.addEventListener('change', handleFileSelect);
-        };
-        
-        const createPeerConnection = (roomId) => {
-            peerConnection = new RTCPeerConnection(servers);
-
-            // This handler is now set up in the main create/join functions
-            // after the document is confirmed to exist.
-            
-            // This listener is also set up after the document is confirmed to exist.
         };
         
         const createRoom = async () => {
@@ -184,6 +176,11 @@
             startScreen.classList.add('hidden');
             shareScreen.classList.remove('hidden');
             statusSpinner.classList.remove('hidden');
+
+            // NEW: Check for Web Share API and update button text
+            if (navigator.share) {
+                copyBtn.textContent = 'Share';
+            }
 
             try {
                 const roomRef = doc(collection(db, 'rooms'));
@@ -372,16 +369,51 @@
         };
 
         // --- UI Helper Functions ---
-        const copyShareLink = () => {
-            shareLinkInput.select();
-            document.execCommand('copy');
-            copyBtn.textContent = 'Copied!';
-            setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
+        // UPDATED: This function now handles both Share and Copy
+        const shareOrCopyLink = async () => {
+            const urlToShare = shareLinkInput.value;
+
+            if (navigator.share) {
+                // Use Web Share API on mobile
+                try {
+                    await navigator.share({
+                        title: 'DirectDrop File Share',
+                        text: 'Click the link to join my secure file transfer session:',
+                        url: urlToShare,
+                    });
+                    copyBtn.textContent = 'Shared!';
+                } catch (error) {
+                    // This block is the FIX
+                    if (error.name === 'NotAllowedError') {
+                        console.warn('Share API permission denied. This can happen if the feature is blocked in your browser or this environment. Falling back to copy.');
+                    } else {
+                        console.error('Error sharing:', error);
+                    }
+                    // Fallback to copy functionality in case of any error
+                    copyToClipboard(urlToShare);
+                }
+            } else {
+                // Fallback to clipboard on desktop
+                copyToClipboard(urlToShare);
+            }
+        };
+
+        const copyToClipboard = (text) => {
+             shareLinkInput.select();
+             document.execCommand('copy');
+             copyBtn.textContent = 'Copied!';
+             setTimeout(() => { copyBtn.textContent = navigator.share ? 'Share' : 'Copy'; }, 2000);
         };
 
         const updateStatus = (text) => {
             statusSpinner.classList.add('hidden');
-            statusText.textContent = text;
+            // Ensure statusText is just the text content, not the spinner element
+            const statusContent = statusText.childNodes[1]; 
+            if(statusContent) {
+                statusContent.textContent = ` ${text}`;
+            } else {
+                statusText.textContent = text;
+            }
         };
         
         const updateProgressBar = (value, max) => {
