@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>P2P Direct File Share</title>
+    <!-- PWA Manifest Link -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#4f46e5">
+    <meta name="description" content="Secure Peer-to-Peer File Sharing application built with WebRTC.">
+    <link rel="apple-touch-icon" href="https://placehold.co/180x180/4f46e5/ffffff?text=DD">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -11,7 +16,6 @@
         body {
             font-family: 'Inter', sans-serif;
         }
-        /* Simple loader for status updates */
         .lds-ring {
             display: inline-block;
             position: relative;
@@ -38,7 +42,6 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        /* Ensures the app uses the full screen height on mobile */
         html, body {
             height: 100%;
             overflow: hidden;
@@ -46,9 +49,8 @@
         .app-container {
              height: 100%;
         }
-        /* Style for the drag-over effect */
         .drag-over {
-            border: 2px dashed #818cf8; /* Lighter indigo */
+            border: 2px dashed #818cf8;
             transform: scale(1.02);
         }
     </style>
@@ -82,9 +84,9 @@
                     </div>
                 </div>
 
-                <!-- NEW: QR Code Display Area -->
+                <!-- QR Code Display Area -->
                 <div id="qr-code-container" class="hidden mx-auto bg-white p-2 rounded-lg w-40 h-40">
-                    <!-- QR code will be generated here by the library -->
+                    <!-- QR code will be generated here -->
                 </div>
 
                 <div id="status-container" class="text-center p-4 rounded-lg bg-gray-700 transition-colors duration-300">
@@ -97,7 +99,7 @@
                 <!-- Chat Interface -->
                 <div id="chat-container" class="hidden w-full">
                     <div id="chat-log" class="h-32 overflow-y-auto bg-gray-900 rounded-t-lg p-3 text-sm space-y-2">
-                        <!-- Messages will appear here -->
+                        <!-- Messages appear here -->
                     </div>
                     <div class="flex">
                         <input type="text" id="chat-input" placeholder="Type a message..." class="flex-1 bg-gray-700 border-gray-600 text-gray-200 p-2 focus:ring-indigo-500 focus:border-indigo-500 rounded-bl-lg">
@@ -160,7 +162,9 @@
                 },
             ],
         };
-        const CHUNK_SIZE = 64 * 1024; // 64KB
+        // UPDATED: Increased chunk size for better performance with large files
+        const CHUNK_SIZE = 1024 * 1024; // 1MB
+        const BUFFERED_AMOUNT_LOW_THRESHOLD = 16 * 1024 * 1024; // 16MB threshold for backpressure
 
         // --- DOM Elements ---
         const dropZone = document.getElementById('drop-zone');
@@ -169,7 +173,7 @@
         const createBtn = document.getElementById('create-btn');
         const shareLinkInput = document.getElementById('share-link');
         const copyBtn = document.getElementById('copy-btn');
-        const qrCodeContainer = document.getElementById('qr-code-container'); // NEW
+        const qrCodeContainer = document.getElementById('qr-code-container');
         const statusContainer = document.getElementById('status-container');
         const statusText = document.getElementById('status-text');
         const statusSpinner = document.getElementById('status-spinner');
@@ -246,22 +250,11 @@
                 peerConnection.onicecandidate = async (event) => {
                     if (event.candidate) { await addDoc(collection(db, 'rooms', roomId, 'initiatorCandidates'), event.candidate.toJSON()); }
                 };
-                
                 const shareLink = `${window.location.origin}${window.location.pathname}?id=${roomId}`;
                 shareLinkInput.value = shareLink;
-                
-                // NEW: Generate and display QR code
-                qrCodeContainer.innerHTML = ''; // Clear previous QR code
-                new QRCode(qrCodeContainer, {
-                    text: shareLink,
-                    width: 144,
-                    height: 144,
-                    colorDark : "#000000",
-                    colorLight : "#ffffff",
-                    correctLevel : QRCode.CorrectLevel.H
-                });
+                qrCodeContainer.innerHTML = '';
+                new QRCode(qrCodeContainer, { text: shareLink, width: 144, height: 144, colorDark : "#000000", colorLight : "#ffffff", correctLevel : QRCode.CorrectLevel.H });
                 qrCodeContainer.classList.remove('hidden');
-
                 window.addEventListener('beforeunload', () => deleteDoc(doc(db, 'rooms', roomId)));
             } catch (error) {
                 console.error("Error creating room:", error);
@@ -315,6 +308,7 @@
                 progressContainer.classList.add('hidden');
             };
             dataChannel.onmessage = handleDataChannelMessage;
+            dataChannel.bufferedAmountLowThreshold = BUFFERED_AMOUNT_LOW_THRESHOLD;
         };
 
         const handleDragOver = (e) => { e.preventDefault(); if (!fileSelectionContainer.classList.contains('hidden')) { dropZone.classList.add('drag-over'); } };
@@ -368,22 +362,38 @@
 
             fileReader = new FileReader();
             let offset = 0;
-            fileReader.onload = (e) => {
-                dataChannel.send(e.target.result);
-                offset += e.target.result.byteLength;
-                updateProgressBar(offset, file.size);
-                if (offset < file.size) {
-                    readSlice(offset);
-                } else {
-                    currentFileIndex++;
-                    sendNextFile();
-                }
-            };
+
             const readSlice = (o) => {
                 const slice = file.slice(o, o + CHUNK_SIZE);
                 fileReader.readAsArrayBuffer(slice);
             };
-            readSlice(0);
+
+            // NEW: Backpressure implementation
+            dataChannel.onbufferedamountlow = () => {
+                if (offset < file.size) {
+                    readSlice(offset);
+                }
+            };
+            
+            fileReader.onload = (e) => {
+                // Check buffer before sending
+                if (dataChannel.bufferedAmount < BUFFERED_AMOUNT_LOW_THRESHOLD) {
+                    dataChannel.send(e.target.result);
+                    offset += e.target.result.byteLength;
+                    updateProgressBar(offset, file.size);
+                    if (offset < file.size) {
+                        // Continue reading if buffer is not full
+                        if(dataChannel.bufferedAmount < BUFFERED_AMOUNT_LOW_THRESHOLD){
+                             readSlice(offset);
+                        }
+                    } else {
+                        currentFileIndex++;
+                        sendNextFile();
+                    }
+                }
+            };
+            
+            readSlice(0); // Start the process
         };
 
         const sendChatMessage = () => {
@@ -421,11 +431,9 @@
                 } catch(e) { console.error("Error parsing data message", e); }
                 return;
             }
-
             receiveBuffer.push(event.data);
             receivedSize += event.data.byteLength;
             updateProgressBar(receivedSize, fileMetadata.size);
-
             if (receivedSize === fileMetadata.size) {
                 const receivedFile = new Blob(receiveBuffer, { type: fileMetadata.type });
                 const link = document.createElement('a');
@@ -490,6 +498,18 @@
         // --- Start the App ---
         initialize();
 
+        // Register the Service Worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(registration => {
+                        console.log('ServiceWorker registration successful with scope: ', registration.scope);
+                    })
+                    .catch(err => {
+                        console.log('ServiceWorker registration failed: ', err);
+                    });
+            });
+        }
     </script>
 </body>
 </html>
