@@ -173,7 +173,7 @@
                 },
             ],
         };
-        const CHUNK_SIZE = 1024 * 1024; // 1MB
+        const CHUNK_SIZE = 64 * 1024; // 64KB -- Reduced from 1MB for more stable transfers
         const BUFFERED_AMOUNT_LOW_THRESHOLD = 16 * 1024 * 1024; // 16MB
 
         // --- DOM Elements ---
@@ -228,7 +228,6 @@
                 if (id) {
                     joinRoom(id);
                 } else {
-                    // Replaced alert with a more modern notification if possible, but alert is a safe fallback.
                     console.log('Please enter a Room ID.'); 
                 }
             });
@@ -283,14 +282,14 @@
                 await setDoc(roomRef, { offer: { sdp: offer.sdp, type: offer.type } });
                 onSnapshot(roomRef, (doc) => {
                     const data = doc.data();
-                    if (!peerConnection.currentRemoteDescription && data?.answer) {
+                    if (peerConnection && !peerConnection.currentRemoteDescription && data?.answer) {
                         peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
                     }
                 });
                 const remoteCandidateCollection = collection(db, 'rooms', roomId, 'receiverCandidates');
                 onSnapshot(remoteCandidateCollection, (snapshot) => {
                     snapshot.docChanges().forEach((change) => {
-                        if (change.type === 'added') { peerConnection.addIceCandidate(new RTCIceCandidate(change.doc.data())); }
+                        if (change.type === 'added' && peerConnection) { peerConnection.addIceCandidate(new RTCIceCandidate(change.doc.data())); }
                     });
                 });
                 peerConnection.onicecandidate = async (event) => {
@@ -330,7 +329,7 @@
                 const remoteCandidateCollection = collection(db, 'rooms', roomId, 'initiatorCandidates');
                 onSnapshot(remoteCandidateCollection, (snapshot) => {
                     snapshot.docChanges().forEach((change) => {
-                        if (change.type === 'added') { peerConnection.addIceCandidate(new RTCIceCandidate(change.doc.data())); }
+                        if (change.type === 'added' && peerConnection) { peerConnection.addIceCandidate(new RTCIceCandidate(change.doc.data())); }
                     });
                 });
                 peerConnection.onicecandidate = async (event) => {
@@ -430,7 +429,11 @@
 
             fileReader.onload = () => {
                 try {
-                    if (dataChannel.readyState !== 'open') return;
+                    if (!dataChannel || dataChannel.readyState !== 'open') {
+                        console.log('Data channel is not open, aborting send.');
+                        updateStatus('Connection lost while sending.', 'error');
+                        return;
+                    }
                     dataChannel.send(fileReader.result);
                     offset += fileReader.result.byteLength;
                     updateProgressBar(offset, file.size);
@@ -575,3 +578,4 @@
     </script>
 </body>
 </html>
+
