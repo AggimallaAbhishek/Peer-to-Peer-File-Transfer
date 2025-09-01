@@ -230,7 +230,6 @@
             dropZone.addEventListener('drop', handleDrop);
         };
         
-        // NEW: Function to monitor the core WebRTC connection state
         const setupPeerConnectionListeners = () => {
             peerConnection.onconnectionstatechange = () => {
                 console.log(`Connection state changed to: ${peerConnection.connectionState}`);
@@ -243,7 +242,6 @@
                         break;
                     case 'failed':
                         updateStatus('Connection failed. Please refresh and try again.', 'error');
-                        // Clean up resources
                         if (dataChannel) dataChannel.close();
                         if (peerConnection) peerConnection.close();
                         break;
@@ -264,7 +262,7 @@
                 const roomRef = doc(collection(db, 'rooms'));
                 const roomId = roomRef.id;
                 peerConnection = new RTCPeerConnection(servers);
-                setupPeerConnectionListeners(); // NEW: Attach connection state listener
+                setupPeerConnectionListeners();
                 dataChannel = peerConnection.createDataChannel('file-transfer');
                 setupDataChannel();
                 const offer = await peerConnection.createOffer();
@@ -315,7 +313,7 @@
                     return;
                 }
                 peerConnection = new RTCPeerConnection(servers);
-                setupPeerConnectionListeners(); // NEW: Attach connection state listener
+                setupPeerConnectionListeners();
                 const remoteCandidateCollection = collection(db, 'rooms', roomId, 'initiatorCandidates');
                 onSnapshot(remoteCandidateCollection, (snapshot) => {
                     snapshot.docChanges().forEach((change) => {
@@ -345,17 +343,15 @@
                 if (isInitiator) { fileSelectionContainer.classList.remove('hidden'); }
             };
             dataChannel.onclose = () => {
-                // This event is now mostly handled by onconnectionstatechange, but we keep UI updates here.
                 updateStatus('Connection closed.', 'waiting');
                 chatContainer.classList.add('hidden');
                 fileSelectionContainer.classList.add('hidden');
                 fileConfirmationContainer.classList.add('hidden');
                 progressContainer.classList.add('hidden');
-                // MODIFIED: Add proper cleanup
                 if (peerConnection && peerConnection.connectionState !== 'closed') {
                     peerConnection.close();
                 }
-                peerConnection = null; // Nullify to prevent reuse
+                peerConnection = null;
             };
             dataChannel.onmessage = handleDataChannelMessage;
             dataChannel.bufferedAmountLowThreshold = BUFFERED_AMOUNT_LOW_THRESHOLD;
