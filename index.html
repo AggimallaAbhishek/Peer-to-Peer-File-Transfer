@@ -585,7 +585,6 @@
             await setDoc(peerRef, { offer: offerToSend });
 
             onSnapshot(peerRef, async (snapshot) => {
-                // CORRECTED: Added safety check for closed connection
                 if (pc.connectionState === 'closed') return;
                 
                 let answer = snapshot.data()?.answer;
@@ -897,15 +896,21 @@
             copyButton.textContent = 'Copy Text';
             copyButton.className = 'w-full text-xs bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-2 rounded-md';
             copyButton.onclick = () => {
-                // Use a temporary textarea to copy text to the clipboard
                 const textArea = document.createElement("textarea");
                 textArea.value = text;
+                textArea.style.position = 'fixed';
+                textArea.style.top = '-9999px';
+                textArea.style.left = '-9999px';
                 document.body.appendChild(textArea);
                 textArea.select();
-                document.execCommand('copy');
+                try {
+                    document.execCommand('copy');
+                    copyButton.textContent = 'Copied!';
+                } catch (err) {
+                    console.error('Failed to copy text: ', err);
+                    copyButton.textContent = 'Copy Failed';
+                }
                 document.body.removeChild(textArea);
-                
-                copyButton.textContent = 'Copied!';
                 setTimeout(() => copyButton.textContent = 'Copy Text', 2000);
             };
             
