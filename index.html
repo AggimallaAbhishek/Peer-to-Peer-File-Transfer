@@ -58,6 +58,7 @@
         #received-files-list::-webkit-scrollbar,
         #sending-queue-list::-webkit-scrollbar,
         #participants-list::-webkit-scrollbar,
+        #received-text-list::-webkit-scrollbar,
         #chat-log::-webkit-scrollbar {
             width: 8px;
         }
@@ -65,6 +66,7 @@
         #received-files-list::-webkit-scrollbar-track,
         #sending-queue-list::-webkit-scrollbar-track,
         #participants-list::-webkit-scrollbar-track,
+        #received-text-list::-webkit-scrollbar-track,
         #chat-log::-webkit-scrollbar-track {
             background: #111827; /* bg-gray-900 */
             border-radius: 10px;
@@ -73,6 +75,7 @@
         #received-files-list::-webkit-scrollbar-thumb,
         #sending-queue-list::-webkit-scrollbar-thumb,
         #participants-list::-webkit-scrollbar-thumb,
+        #received-text-list::-webkit-scrollbar-thumb,
         #chat-log::-webkit-scrollbar-thumb {
             background: #4f46e5; /* bg-indigo-600 */
             border-radius: 10px;
@@ -81,12 +84,13 @@
         #received-files-list::-webkit-scrollbar-thumb:hover,
         #sending-queue-list::-webkit-scrollbar-thumb:hover,
         #participants-list::-webkit-scrollbar-thumb:hover,
+        #received-text-list::-webkit-scrollbar-thumb:hover,
         #chat-log::-webkit-scrollbar-thumb:hover {
             background: #4338ca; /* bg-indigo-700 */
         }
 
         /* For Firefox */
-        #received-files-list, #sending-queue-list, #participants-list, #chat-log {
+        #received-files-list, #sending-queue-list, #participants-list, #received-text-list, #chat-log {
           scrollbar-width: thin;
           scrollbar-color: #4f46e5 #111827;
         }
@@ -150,6 +154,29 @@
                     <p class="font-semibold text-gray-300 mb-2">Participants:</p>
                     <div id="participants-list" class="space-y-2 max-h-32 overflow-y-auto"></div>
                 </div>
+                
+                <!-- Tabbed interface for sharing -->
+                <div id="sharing-mode-container" class="hidden">
+                    <div class="flex border-b border-gray-700">
+                        <button id="show-files-btn" class="flex-1 py-2 px-4 text-sm font-medium text-center text-white bg-gray-600 rounded-tl-lg focus:outline-none">Share Files</button>
+                        <button id="show-text-btn" class="flex-1 py-2 px-4 text-sm font-medium text-center text-gray-400 focus:outline-none">Share Text</button>
+                    </div>
+
+                    <!-- File Selection -->
+                    <div id="file-selection-container" class="hidden pt-4">
+                        <label for="file-input" class="w-full cursor-pointer bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105 text-center block">
+                            Select Files or a Folder
+                        </label>
+                        <input type="file" id="file-input" class="hidden" multiple webkitdirectory>
+                    </div>
+                    
+                    <!-- Text Snippet Sharing -->
+                    <div id="text-selection-container" class="hidden pt-4 space-y-3">
+                        <textarea id="text-snippet-input" class="w-full h-24 p-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-indigo-500 focus:border-indigo-500" placeholder="Paste or type text to share..."></textarea>
+                        <button id="send-text-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition">Send Text</button>
+                    </div>
+                </div>
+
 
                 <!-- Chat Interface -->
                 <div id="chat-container" class="hidden w-full">
@@ -160,14 +187,6 @@
                         <input type="text" id="chat-input" placeholder="Type a message..." class="flex-1 bg-gray-700 border-gray-600 text-gray-200 p-2 focus:ring-indigo-500 focus:border-indigo-500 rounded-bl-lg">
                         <button id="chat-send-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-br-lg">Send</button>
                     </div>
-                </div>
-
-                <!-- File Selection -->
-                <div id="file-selection-container" class="hidden">
-                     <label for="file-input" class="w-full cursor-pointer bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105 text-center block">
-                         Select Files or a Folder to Send
-                    </label>
-                    <input type="file" id="file-input" class="hidden" multiple webkitdirectory>
                 </div>
 
                 <!-- File Confirmation -->
@@ -201,6 +220,13 @@
                     <p class="font-semibold text-gray-300 mb-2">Received Files:</p>
                     <div id="received-files-list" class="space-y-2 max-h-48 overflow-y-auto"></div>
                 </div>
+
+                <!-- Received Text Container -->
+                <div id="received-text-container" class="hidden text-left">
+                    <p class="font-semibold text-gray-300 mb-2">Received Text Snippets:</p>
+                    <div id="received-text-list" class="space-y-2 max-h-48 overflow-y-auto"></div>
+                </div>
+
             </div>
         </div>
     </div>
@@ -263,14 +289,22 @@
         const chatLog = document.getElementById('chat-log');
         const chatInput = document.getElementById('chat-input');
         const chatSendBtn = document.getElementById('chat-send-btn');
+        const sharingModeContainer = document.getElementById('sharing-mode-container');
+        const showFilesBtn = document.getElementById('show-files-btn');
+        const showTextBtn = document.getElementById('show-text-btn');
         const fileSelectionContainer = document.getElementById('file-selection-container');
         const fileInput = document.getElementById('file-input');
+        const textSelectionContainer = document.getElementById('text-selection-container');
+        const textSnippetInput = document.getElementById('text-snippet-input');
+        const sendTextBtn = document.getElementById('send-text-btn');
         const fileConfirmationContainer = document.getElementById('file-confirmation-container');
         const fileInfoText = document.getElementById('file-info-text');
         const sendBtn = document.getElementById('send-btn');
         const cancelBtn = document.getElementById('cancel-btn');
         const receivedFilesContainer = document.getElementById('received-files-container');
         const receivedFilesList = document.getElementById('received-files-list');
+        const receivedTextContainer = document.getElementById('received-text-container');
+        const receivedTextList = document.getElementById('received-text-list');
         const zipOptionContainer = document.getElementById('zip-option-container');
         const zipCheckbox = document.getElementById('zip-folder-checkbox');
         const sendingQueueContainer = document.getElementById('sending-queue-container');
@@ -344,6 +378,9 @@
             fileInput.addEventListener('change', handleFileSelect);
             sendBtn.addEventListener('click', startSendingFiles);
             cancelBtn.addEventListener('click', cancelFileSelection);
+            showFilesBtn.addEventListener('click', showFileSharingView);
+            showTextBtn.addEventListener('click', showTextSharingView);
+            sendTextBtn.addEventListener('click', sendTextSnippet);
             dropZone.addEventListener('dragover', handleDragOver);
             dropZone.addEventListener('dragleave', handleDragLeave);
             dropZone.addEventListener('drop', handleDrop);
@@ -417,7 +454,7 @@
 
             startScreen.classList.add('hidden');
             shareScreen.classList.remove('hidden');
-            fileSelectionContainer.classList.remove('hidden');
+            sharingModeContainer.classList.add('hidden'); // Hide until connected
 
             if (roomMode === 'group') participantsContainer.classList.remove('hidden');
             updateParticipantsList();
@@ -432,7 +469,7 @@
                 if (roomMode === 'group') {
                     setTimeout(() => {
                         console.log(`Room ${roomId} expired after 1 hour. Deleting.`);
-                        deleteDoc(roomRef);
+                        deleteDoc(roomRef).catch(err => console.error("Error deleting expired room:", err));
                     }, 3600 * 1000);
                 }
 
@@ -474,6 +511,7 @@
             startScreen.classList.add('hidden');
             shareScreen.classList.remove('hidden');
             qrCodeArea.classList.add('hidden');
+            sharingModeContainer.classList.add('hidden');
             updateStatus('Connecting...', 'progress');
             try {
                 const roomRef = doc(db, 'rooms', roomId);
@@ -547,6 +585,9 @@
             await setDoc(peerRef, { offer: offerToSend });
 
             onSnapshot(peerRef, async (snapshot) => {
+                // CORRECTED: Added safety check for closed connection
+                if (pc.connectionState === 'closed') return;
+                
                 let answer = snapshot.data()?.answer;
                 if (!pc.currentRemoteDescription && answer) {
                     try {
@@ -581,11 +622,16 @@
                 console.log(`Data channel with ${id} opened.`);
                 chatContainer.classList.remove('hidden');
                 updateParticipantsList();
+                 if (isHost) {
+                    sharingModeContainer.classList.remove('hidden');
+                    showFileSharingView();
+                }
+
                  if (roomMode === 'p2p' && isHost) {
                     qrCodeArea.classList.add('hidden');
                     console.log('P2P connection established. Deleting signaling room from server.');
                     const roomRef = doc(db, 'rooms', roomId);
-                    deleteDoc(roomRef);
+                    deleteDoc(roomRef).catch(err => console.error("Error deleting P2P room:", err));
                     updateStatus('Connected to peer! Signaling server disconnected for privacy.', 'connected');
                 }
             };
@@ -764,6 +810,9 @@
                            receiveBuffer = [];
                            receivedSize = 0;
                            updateStatus(`Receiving file: ${fileMetadata.name}`, 'progress');
+                        } else if (parsedData.type === 'text-snippet') {
+                            if (isHost) broadcastToPeers(JSON.stringify(parsedData), senderId);
+                            displayReceivedText(parsedData.payload, parsedData.sender);
                         }
                         return;
                     }
@@ -810,6 +859,62 @@
             chatInput.value = '';
         };
 
+        const sendTextSnippet = async () => {
+            const text = textSnippetInput.value;
+            if (!text.trim()) return;
+
+            const senderName = isHost ? 'Host' : `Peer ${localId.substring(0, 4)}`;
+            let textPayload = { type: 'text-snippet', payload: text, sender: senderName };
+
+            if (roomPassword) {
+                textPayload.payload = await encryptData(text, roomPassword);
+                textPayload.encrypted = true;
+            }
+
+            const payloadString = JSON.stringify(textPayload);
+            const targetPeerId = (roomMode === 'p2p') ? peerConnections.keys().next().value : 'broadcast';
+            
+            sendToTarget(targetPeerId, payloadString);
+
+            updateStatus(`Text snippet sent.`, 'connected');
+            textSnippetInput.value = '';
+        };
+
+        const displayReceivedText = (text, sender) => {
+            receivedTextContainer.classList.remove('hidden');
+            const snippetEl = document.createElement('div');
+            snippetEl.className = 'bg-gray-700 rounded-lg p-3 space-y-2';
+            
+            const textContent = document.createElement('pre');
+            textContent.textContent = text;
+            textContent.className = 'text-sm text-white whitespace-pre-wrap break-words';
+            
+            const fromText = document.createElement('p');
+            fromText.textContent = `From: ${sender}`;
+            fromText.className = 'text-xs text-gray-400';
+            
+            const copyButton = document.createElement('button');
+            copyButton.textContent = 'Copy Text';
+            copyButton.className = 'w-full text-xs bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-2 rounded-md';
+            copyButton.onclick = () => {
+                // Use a temporary textarea to copy text to the clipboard
+                const textArea = document.createElement("textarea");
+                textArea.value = text;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                
+                copyButton.textContent = 'Copied!';
+                setTimeout(() => copyButton.textContent = 'Copy Text', 2000);
+            };
+            
+            snippetEl.appendChild(fromText);
+            snippetEl.appendChild(textContent);
+            snippetEl.appendChild(copyButton);
+            receivedTextList.appendChild(snippetEl);
+        };
+        
         const appendChatMessage = (message, type, sender = 'You') => {
             const messageEl = document.createElement('p');
             const prefix = type === 'sent' ? 'You: ' : `${sender}: `;
@@ -846,7 +951,7 @@
             fileConfirmationContainer.classList.add('hidden');
             sendingQueueContainer.classList.add('hidden');
             sendingQueueList.innerHTML = '';
-            fileSelectionContainer.classList.remove('hidden');
+            showFileSharingView();
         };
 
         const shareOrCopyLink = async () => {
@@ -900,12 +1005,32 @@
             return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
         };
         
-        const handleDragOver = (e) => { e.preventDefault(); if (!fileSelectionContainer.classList.contains('hidden')) { dropZone.classList.add('drag-over'); } };
+        const showFileSharingView = () => {
+            showFilesBtn.classList.add('bg-gray-600', 'text-white');
+            showFilesBtn.classList.remove('text-gray-400');
+            showTextBtn.classList.remove('bg-gray-600', 'text-white');
+            showTextBtn.classList.add('text-gray-400');
+
+            fileSelectionContainer.classList.remove('hidden');
+            textSelectionContainer.classList.add('hidden');
+        };
+
+        const showTextSharingView = () => {
+            showTextBtn.classList.add('bg-gray-600', 'text-white');
+            showTextBtn.classList.remove('text-gray-400');
+            showFilesBtn.classList.remove('bg-gray-600', 'text-white');
+            showFilesBtn.classList.add('text-gray-400');
+
+            textSelectionContainer.classList.remove('hidden');
+            fileSelectionContainer.classList.add('hidden');
+        };
+
+        const handleDragOver = (e) => { e.preventDefault(); if (!sharingModeContainer.classList.contains('hidden')) { dropZone.classList.add('drag-over'); } };
         const handleDragLeave = (e) => { e.preventDefault(); dropZone.classList.remove('drag-over'); };
         const handleDrop = (e) => {
             e.preventDefault();
             dropZone.classList.remove('drag-over');
-            if (!fileSelectionContainer.classList.contains('hidden') && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            if (!sharingModeContainer.classList.contains('hidden') && fileSelectionContainer.style.display !== 'none' && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
                  handleFileSelect({ target: { files: e.dataTransfer.files } });
                  e.dataTransfer.clearData();
             }
