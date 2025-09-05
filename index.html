@@ -268,7 +268,6 @@
         };
         const CHUNK_SIZE = 256 * 1024; 
         const BUFFERED_AMOUNT_LOW_THRESHOLD = 16 * 1024 * 1024;
-        const LARGE_FILE_THRESHOLD = 200 * 1024 * 1024; // 200 MB
 
         // --- DOM Elements ---
         const dropZone = document.getElementById('drop-zone');
@@ -331,8 +330,6 @@
         let roomId;
         let roomMode = 'p2p';
         let roomPassword = null;
-        let fileHandle = null;
-        let writableStream = null;
 
         // --- Crypto Helpers ---
         async function deriveKey(password, salt) {
@@ -828,11 +825,22 @@
                 const link = document.createElement('a');
                 link.href = URL.createObjectURL(receivedFile);
                 link.download = fileMetadata.name;
-                link.textContent = `${fileMetadata.name} (${formatBytes(fileMetadata.size)})`;
-                link.className = 'w-full block bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3 rounded-lg text-sm text-center';
-                receivedFilesList.appendChild(link);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(link.href);
+
+                const receivedItem = document.createElement('div');
+                receivedItem.className = 'w-full block bg-gray-700 text-white font-bold py-2 px-3 rounded-lg text-sm text-left';
+                receivedItem.innerHTML = `<p class="font-semibold truncate">${fileMetadata.name}</p><p class="text-xs text-gray-400">${formatBytes(fileMetadata.size)} - Downloaded</p>`;
+                receivedFilesList.appendChild(receivedItem);
+
                 receivedFilesContainer.classList.remove('hidden');
                 updateStatus(`File "${fileMetadata.name}" received.`, 'connected');
+
+                receiveBuffer = [];
+                receivedSize = 0;
+                fileMetadata = null;
             }
         };
 
