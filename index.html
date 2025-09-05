@@ -163,11 +163,15 @@
                     </div>
 
                     <!-- File Selection -->
-                    <div id="file-selection-container" class="hidden pt-4">
-                        <label for="file-input" class="w-full cursor-pointer bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105 text-center block">
-                            Select Files or a Folder
-                        </label>
-                        <input type="file" id="file-input" class="hidden" multiple webkitdirectory>
+                    <div id="file-selection-container" class="hidden pt-4 space-y-3">
+                        <button id="select-files-btn" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105">
+                           Select File(s)
+                        </button>
+                        <button id="select-folder-btn" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105">
+                           Select Folder
+                        </button>
+                        <input type="file" id="file-input-files" class="hidden" multiple>
+                        <input type="file" id="file-input-folder" class="hidden" webkitdirectory multiple>
                     </div>
                     
                     <!-- Text Snippet Sharing -->
@@ -308,7 +312,10 @@
         const showFilesBtn = document.getElementById('show-files-btn');
         const showTextBtn = document.getElementById('show-text-btn');
         const fileSelectionContainer = document.getElementById('file-selection-container');
-        const fileInput = document.getElementById('file-input');
+        const fileInputFiles = document.getElementById('file-input-files');
+        const fileInputFolder = document.getElementById('file-input-folder');
+        const selectFilesBtn = document.getElementById('select-files-btn');
+        const selectFolderBtn = document.getElementById('select-folder-btn');
         const textSelectionContainer = document.getElementById('text-selection-container');
         const textSnippetInput = document.getElementById('text-snippet-input');
         const sendTextBtn = document.getElementById('send-text-btn');
@@ -390,7 +397,10 @@
             copyBtn.addEventListener('click', shareOrCopyLink);
             chatSendBtn.addEventListener('click', sendChatMessage);
             chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sendChatMessage(); } });
-            fileInput.addEventListener('change', handleFileSelect);
+            selectFilesBtn.addEventListener('click', () => fileInputFiles.click());
+            selectFolderBtn.addEventListener('click', () => fileInputFolder.click());
+            fileInputFiles.addEventListener('change', handleFileSelect);
+            fileInputFolder.addEventListener('change', handleFileSelect);
             sendBtn.addEventListener('click', startSendingFiles);
             cancelBtn.addEventListener('click', cancelFileSelection);
             showFilesBtn.addEventListener('click', showFileSharingView);
@@ -666,7 +676,8 @@
 
             if (isHost && peerConnections.size === 0) {
                 updateStatus('Select files after a peer has connected.', 'error');
-                fileInput.value = null; 
+                fileInputFiles.value = null;
+                fileInputFolder.value = null; 
                 return;
             }
 
@@ -976,7 +987,8 @@
         const cancelFileSelection = () => {
             filesToSend = [];
             currentFileIndex = 0;
-            fileInput.value = null;
+            fileInputFiles.value = null;
+            fileInputFolder.value = null;
             zipOptionContainer.classList.add('hidden');
             recipientSelectionContainer.classList.add('hidden');
             fileConfirmationContainer.classList.add('hidden');
@@ -1042,6 +1054,7 @@
             showTextBtn.classList.remove('bg-gray-600', 'text-white');
             showTextBtn.classList.add('text-gray-400');
 
+            fileConfirmationContainer.classList.add('hidden');
             fileSelectionContainer.classList.remove('hidden');
             textSelectionContainer.classList.add('hidden');
         };
@@ -1053,6 +1066,7 @@
             showFilesBtn.classList.add('text-gray-400');
 
             textSelectionContainer.classList.remove('hidden');
+            fileConfirmationContainer.classList.add('hidden');
             fileSelectionContainer.classList.add('hidden');
         };
 
