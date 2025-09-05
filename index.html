@@ -11,7 +11,6 @@
     <link rel="apple-touch-icon" href="https://placehold.co/180x180/4f46e5/ffffff?text=DD">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-    <!-- ADDED: JSZip library for folder zipping -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -46,10 +45,8 @@
         }
         html, body {
             height: 100%;
-            /* MODIFIED: Removed overflow: hidden to allow the page to scroll */
         }
         .app-container {
-             /* MODIFIED: Changed to min-height to allow container to grow */
              min-height: 100%;
         }
         .drag-over {
@@ -58,30 +55,38 @@
         }
 
         /* --- Custom Scrollbar Styles --- */
-        #download-list::-webkit-scrollbar,
+        #received-files-list::-webkit-scrollbar,
+        #sending-queue-list::-webkit-scrollbar,
+        #participants-list::-webkit-scrollbar,
         #chat-log::-webkit-scrollbar {
             width: 8px;
         }
 
-        #download-list::-webkit-scrollbar-track,
+        #received-files-list::-webkit-scrollbar-track,
+        #sending-queue-list::-webkit-scrollbar-track,
+        #participants-list::-webkit-scrollbar-track,
         #chat-log::-webkit-scrollbar-track {
             background: #111827; /* bg-gray-900 */
             border-radius: 10px;
         }
 
-        #download-list::-webkit-scrollbar-thumb,
+        #received-files-list::-webkit-scrollbar-thumb,
+        #sending-queue-list::-webkit-scrollbar-thumb,
+        #participants-list::-webkit-scrollbar-thumb,
         #chat-log::-webkit-scrollbar-thumb {
             background: #4f46e5; /* bg-indigo-600 */
             border-radius: 10px;
         }
 
-        #download-list::-webkit-scrollbar-thumb:hover,
+        #received-files-list::-webkit-scrollbar-thumb:hover,
+        #sending-queue-list::-webkit-scrollbar-thumb:hover,
+        #participants-list::-webkit-scrollbar-thumb:hover,
         #chat-log::-webkit-scrollbar-thumb:hover {
             background: #4338ca; /* bg-indigo-700 */
         }
 
         /* For Firefox */
-        #download-list, #chat-log {
+        #received-files-list, #sending-queue-list, #participants-list, #chat-log {
           scrollbar-width: thin;
           scrollbar-color: #4f46e5 #111827;
         }
@@ -99,15 +104,23 @@
 
             <!-- Initial Screen -->
             <div id="start-screen" class="space-y-4 text-center">
-                <button id="create-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105">
-                    Create Share Link
+                <button id="create-p2p-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105">
+                    Share with One Person
                 </button>
+                <div class="text-center text-gray-400 text-sm">or</div>
+                <button id="create-group-btn" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105">
+                    Broadcast to a Group
+                </button>
+                <div class="pt-2">
+                    <input type="password" id="room-password-input" placeholder="Optional: Room Password" class="block w-full rounded-md bg-gray-700 border-gray-600 text-gray-200 p-3 focus:ring-indigo-500 focus:border-indigo-500 text-center">
+                    <p class="text-xs text-gray-500 mt-1">Passwords are only available for Group rooms.</p>
+                </div>
             </div>
             
             <!-- Sharing Screen -->
             <div id="share-screen" class="hidden space-y-4">
                 <div>
-                    <label class="font-semibold text-gray-300">Share this link with your peer:</label>
+                    <label class="font-semibold text-gray-300">Share this link with your peer(s):</label>
                     <div class="mt-2 flex rounded-lg shadow-sm">
                         <input type="text" id="share-link" readonly class="flex-1 block w-full rounded-none rounded-l-md bg-gray-700 border-gray-600 text-gray-200 p-3 focus:ring-indigo-500 focus:border-indigo-500">
                         <button id="copy-btn" class="inline-flex items-center px-4 py-2 border border-l-0 border-gray-600 text-sm font-medium rounded-r-md text-white bg-gray-600 hover:bg-gray-500">
@@ -116,9 +129,8 @@
                     </div>
                 </div>
 
-                <!-- QR Code Display Area -->
-                <div class="text-center">
-                     <label class="font-semibold text-gray-300">Or have your peer scan this QR code:</label>
+                <div id="qr-code-area" class="text-center">
+                     <label class="font-semibold text-gray-300">Or have them scan this QR code:</label>
                     <div id="qr-code-container" class="mt-2 mx-auto bg-white p-2 rounded-lg w-40 h-40">
                         <!-- QR code will be generated here -->
                     </div>
@@ -127,8 +139,14 @@
                 <div id="status-container" class="text-center p-4 rounded-lg bg-gray-700 transition-colors duration-300">
                     <p id="status-text" class="text-gray-300 flex items-center justify-center">
                         <span id="status-spinner" class="hidden"><div class="lds-ring"><div></div><div></div><div></div><div></div></div></span>
-                        Waiting for peer to connect...
+                        Waiting for peer(s) to connect...
                     </p>
+                </div>
+
+                <!-- Participants List -->
+                 <div id="participants-container" class="hidden text-left">
+                    <p class="font-semibold text-gray-300 mb-2">Participants:</p>
+                    <div id="participants-list" class="space-y-2 max-h-32 overflow-y-auto"></div>
                 </div>
 
                 <!-- Chat Interface -->
@@ -145,17 +163,22 @@
                 <!-- File Selection -->
                 <div id="file-selection-container" class="hidden">
                      <label for="file-input" class="w-full cursor-pointer bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105 text-center block">
-                         Select Files or a Folder
+                         Select Files or a Folder to Send
                     </label>
                     <input type="file" id="file-input" class="hidden" multiple webkitdirectory>
                 </div>
 
                 <!-- File Confirmation -->
                 <div id="file-confirmation-container" class="hidden space-y-3 text-center">
-                    <p class="text-gray-300">Ready to send:</p>
                     <p id="file-info-text" class="font-semibold text-white bg-gray-700 p-3 rounded-lg"></p>
                     
-                    <!-- NEW: Zip option for folders -->
+                    <div id="recipient-selection-container" class="hidden text-left">
+                        <label for="recipient-select" class="text-sm font-medium text-gray-300">Send to:</label>
+                        <select id="recipient-select" class="mt-1 block w-full pl-3 pr-10 py-2 text-base bg-gray-700 border-gray-600 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md text-white">
+                            <!-- Options will be populated dynamically -->
+                        </select>
+                    </div>
+
                     <div id="zip-option-container" class="hidden text-left text-sm text-gray-300 items-center justify-center flex space-x-2">
                         <input type="checkbox" id="zip-folder-checkbox" class="h-4 w-4 rounded bg-gray-700 border-gray-600 text-indigo-600 focus:ring-indigo-500">
                         <label for="zip-folder-checkbox">Send folder as a single .zip file</label>
@@ -166,16 +189,32 @@
                         <button id="send-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition">Send</button>
                     </div>
                 </div>
-
-                <div id="progress-container" class="hidden w-full bg-gray-700 rounded-full h-4">
-                    <div id="progress-bar" class="bg-indigo-500 h-4 rounded-full" style="width: 0%"></div>
+                
+                <div id="sending-queue-container" class="hidden text-left">
+                    <p class="font-semibold text-gray-300 mb-2">Sending Files:</p>
+                    <div id="sending-queue-list" class="space-y-2 max-h-48 overflow-y-auto"></div>
                 </div>
 
-                  <!-- Download List Container -->
-                  <div id="download-container" class="hidden text-left">
+                <div id="received-files-container" class="hidden text-left">
                     <p class="font-semibold text-gray-300 mb-2">Received Files:</p>
-                    <div id="download-list" class="space-y-2 max-h-48 overflow-y-auto"></div>
+                    <div id="received-files-list" class="space-y-2 max-h-48 overflow-y-auto"></div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- NEW: Password Prompt Modal -->
+    <div id="password-prompt-container" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 z-50">
+        <div class="bg-gray-800 p-8 rounded-2xl shadow-xl space-y-4 w-full max-w-sm">
+            <h2 class="text-xl font-bold text-center text-white">Password Required</h2>
+            <p class="text-center text-gray-400 text-sm">This room is password protected. Please enter the password to join.</p>
+            <div>
+                <input type="password" id="password-prompt-input" class="block w-full rounded-md bg-gray-700 border-gray-600 text-gray-200 p-3 focus:ring-indigo-500 focus:border-indigo-500 text-center">
+                <p id="password-error-text" class="text-red-400 text-sm mt-2 text-center hidden">Incorrect password. Please try again.</p>
+            </div>
+            <div class="flex space-x-3">
+                <button id="password-prompt-cancel" class="w-full bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition">Cancel</button>
+                <button id="password-prompt-submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition">Join</button>
             </div>
         </div>
     </div>
@@ -186,7 +225,7 @@
 
         // Import Firebase modules
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, addDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, addDoc, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Initialize Firebase
         const app = initializeApp(firebaseConfig);
@@ -197,11 +236,6 @@
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
-                {
-                    urls: 'turn:openrelay.metered.ca:80',
-                    username: 'openrelayproject',
-                    credential: 'openrelayproject',
-                },
             ],
         };
         const CHUNK_SIZE = 256 * 1024; 
@@ -211,13 +245,18 @@
         const dropZone = document.getElementById('drop-zone');
         const startScreen = document.getElementById('start-screen');
         const shareScreen = document.getElementById('share-screen');
-        const createBtn = document.getElementById('create-btn');
+        const createP2PBtn = document.getElementById('create-p2p-btn');
+        const createGroupBtn = document.getElementById('create-group-btn');
+        const roomPasswordInput = document.getElementById('room-password-input');
         const shareLinkInput = document.getElementById('share-link');
         const copyBtn = document.getElementById('copy-btn');
+        const qrCodeArea = document.getElementById('qr-code-area');
         const qrCodeContainer = document.getElementById('qr-code-container');
         const statusContainer = document.getElementById('status-container');
         const statusText = document.getElementById('status-text');
         const statusSpinner = document.getElementById('status-spinner');
+        const participantsContainer = document.getElementById('participants-container');
+        const participantsList = document.getElementById('participants-list');
         const chatContainer = document.getElementById('chat-container');
         const chatLog = document.getElementById('chat-log');
         const chatInput = document.getElementById('chat-input');
@@ -228,31 +267,74 @@
         const fileInfoText = document.getElementById('file-info-text');
         const sendBtn = document.getElementById('send-btn');
         const cancelBtn = document.getElementById('cancel-btn');
-        const progressContainer = document.getElementById('progress-container');
-        const progressBar = document.getElementById('progress-bar');
-        const downloadContainer = document.getElementById('download-container');
-        const downloadList = document.getElementById('download-list');
+        const receivedFilesContainer = document.getElementById('received-files-container');
+        const receivedFilesList = document.getElementById('received-files-list');
         const zipOptionContainer = document.getElementById('zip-option-container');
         const zipCheckbox = document.getElementById('zip-folder-checkbox');
+        const sendingQueueContainer = document.getElementById('sending-queue-container');
+        const sendingQueueList = document.getElementById('sending-queue-list');
+        const recipientSelectionContainer = document.getElementById('recipient-selection-container');
+        const recipientSelect = document.getElementById('recipient-select');
+        const passwordPromptContainer = document.getElementById('password-prompt-container');
+        const passwordPromptInput = document.getElementById('password-prompt-input');
+        const passwordErrorText = document.getElementById('password-error-text');
+        const passwordPromptCancel = document.getElementById('password-prompt-cancel');
+        const passwordPromptSubmit = document.getElementById('password-prompt-submit');
 
         // --- Global State ---
-        let peerConnection;
-        let dataChannel;
+        let peerConnections = new Map();
+        let localId;
         let receiveBuffer = [];
         let receivedSize = 0;
         let fileMetadata = null;
-        let isInitiator = false;
+        let isHost = false;
         let filesToSend = [];
         let currentFileIndex = 0;
+        let roomId;
+        let roomMode = 'p2p';
+        let roomPassword = null;
+
+        // --- Crypto Helpers ---
+        async function deriveKey(password, salt) {
+            const enc = new TextEncoder();
+            const keyMaterial = await window.crypto.subtle.importKey('raw', enc.encode(password), { name: 'PBKDF2' }, false, ['deriveKey']);
+            return window.crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, keyMaterial, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+        }
+
+        async function encryptData(data, password) {
+            const salt = window.crypto.getRandomValues(new Uint8Array(16));
+            const iv = window.crypto.getRandomValues(new Uint8Array(12));
+            const key = await deriveKey(password, salt);
+            const encodedData = new TextEncoder().encode(JSON.stringify(data));
+            const encryptedContent = await window.crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encodedData);
+            const result = new Uint8Array(salt.length + iv.length + encryptedContent.byteLength);
+            result.set(salt);
+            result.set(iv, salt.length);
+            result.set(new Uint8Array(encryptedContent), salt.length + iv.length);
+            return btoa(String.fromCharCode.apply(null, result));
+        }
+
+        async function decryptData(encryptedBase64, password) {
+            const encryptedBytes = new Uint8Array(atob(encryptedBase64).split('').map(c => c.charCodeAt(0)));
+            const salt = encryptedBytes.slice(0, 16);
+            const iv = encryptedBytes.slice(16, 28);
+            const data = encryptedBytes.slice(28);
+            const key = await deriveKey(password, salt);
+            const decryptedContent = await window.crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
+            return JSON.parse(new TextDecoder().decode(decryptedContent));
+        }
+
 
         // --- Core Logic ---
         const initialize = () => {
+            localId = crypto.randomUUID();
             const urlParams = new URLSearchParams(window.location.search);
-            const roomId = urlParams.get('id');
+            roomId = urlParams.get('id');
             if (roomId) {
                 joinRoom(roomId);
             }
-            createBtn.addEventListener('click', createRoom);
+            createP2PBtn.addEventListener('click', () => { roomMode = 'p2p'; createRoom(); });
+            createGroupBtn.addEventListener('click', () => { roomMode = 'group'; createRoom(); });
             copyBtn.addEventListener('click', shareOrCopyLink);
             chatSendBtn.addEventListener('click', sendChatMessage);
             chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sendChatMessage(); } });
@@ -264,58 +346,102 @@
             dropZone.addEventListener('drop', handleDrop);
         };
         
-        const setupPeerConnectionListeners = () => {
-            peerConnection.onconnectionstatechange = () => {
-                console.log(`Connection state changed to: ${peerConnection.connectionState}`);
-                switch (peerConnection.connectionState) {
-                    case 'connected':
-                        break;
-                    case 'disconnected':
-                        updateStatus('Connection temporarily lost, attempting to reconnect...', 'progress');
-                        break;
-                    case 'failed':
-                        updateStatus('Connection failed. Please refresh and try again.', 'error');
-                        if (dataChannel) dataChannel.close();
-                        if (peerConnection) peerConnection.close();
-                        break;
-                    case 'closed':
-                        updateStatus('Connection closed.', 'waiting');
-                        break;
+        const handleNewPeer = async (peerId, peerDoc) => {
+            if (peerConnections.has(peerId) || peerId === localId) return;
+            if (roomMode === 'p2p' && peerConnections.size >= 1) { return; }
+
+            console.log(`New peer detected: ${peerId}`);
+            const pc = new RTCPeerConnection(servers);
+            peerConnections.set(peerId, { pc, dc: null, name: `Peer ${peerId.substring(0, 4)}` });
+            updateParticipantsList();
+
+            let peerOffer = peerDoc.data().offer;
+            if (roomPassword) {
+                try {
+                    peerOffer = await decryptData(peerOffer, roomPassword);
+                } catch (e) {
+                    console.error("Failed to decrypt offer from peer - likely wrong password.");
+                    peerConnections.delete(peerId);
+                    updateParticipantsList();
+                    return;
+                }
+            }
+            
+            pc.onicecandidate = async (event) => {
+                if (event.candidate) {
+                    const candidateCollection = collection(db, 'rooms', roomId, 'peers', peerId, 'hostCandidates');
+                    await addDoc(candidateCollection, event.candidate.toJSON());
                 }
             };
+            
+            const peerCandidates = collection(db, 'rooms', roomId, 'peers', peerId, 'peerCandidates');
+            onSnapshot(peerCandidates, (snapshot) => {
+                snapshot.docChanges().forEach((change) => {
+                    const connection = peerConnections.get(peerId);
+                    if (change.type === 'added' && connection && connection.pc.connectionState !== 'closed') {
+                         connection.pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
+                    }
+                });
+            });
+
+            pc.ondatachannel = (event) => {
+                const connection = peerConnections.get(peerId);
+                if (connection) {
+                    connection.dc = event.channel;
+                    setupDataChannel(peerId, connection);
+                }
+            };
+
+            await pc.setRemoteDescription(new RTCSessionDescription(peerOffer));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+
+            const peerRef = doc(db, 'rooms', roomId, 'peers', peerId);
+            let answerToSend = { sdp: answer.sdp, type: answer.type };
+            if (roomPassword) {
+                answerToSend = await encryptData(answerToSend, roomPassword);
+            }
+            await updateDoc(peerRef, { answer: answerToSend });
         };
         
         const createRoom = async () => {
-            isInitiator = true;
+            isHost = true;
+            if (roomMode === 'group') {
+                roomPassword = roomPasswordInput.value || null;
+            } else {
+                roomPassword = null;
+            }
+
             startScreen.classList.add('hidden');
             shareScreen.classList.remove('hidden');
-            updateStatus('Waiting for peer to connect...', 'waiting');
-            if (navigator.share) { copyBtn.textContent = 'Share'; }
+            fileSelectionContainer.classList.remove('hidden');
+
+            if (roomMode === 'group') participantsContainer.classList.remove('hidden');
+            updateParticipantsList();
+            updateStatus('Waiting for peer(s) to connect...', 'waiting');
+            
             try {
                 const roomRef = doc(collection(db, 'rooms'));
-                const roomId = roomRef.id;
-                peerConnection = new RTCPeerConnection(servers);
-                setupPeerConnectionListeners();
-                dataChannel = peerConnection.createDataChannel('file-transfer');
-                setupDataChannel();
-                const offer = await peerConnection.createOffer();
-                await peerConnection.setLocalDescription(offer);
-                await setDoc(roomRef, { offer: { sdp: offer.sdp, type: offer.type } });
-                onSnapshot(roomRef, (doc) => {
-                    const data = doc.data();
-                    if (peerConnection && !peerConnection.currentRemoteDescription && data?.answer) {
-                        peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
-                    }
-                });
-                const remoteCandidateCollection = collection(db, 'rooms', roomId, 'receiverCandidates');
-                onSnapshot(remoteCandidateCollection, (snapshot) => {
+                roomId = roomRef.id;
+
+                await setDoc(roomRef, { mode: roomMode, hasPassword: !!roomPassword });
+
+                const peersCollection = collection(db, 'rooms', roomId, 'peers');
+                onSnapshot(peersCollection, (snapshot) => {
                     snapshot.docChanges().forEach((change) => {
-                        if (change.type === 'added' && peerConnection) { peerConnection.addIceCandidate(new RTCIceCandidate(change.doc.data())); }
+                        if (change.type === 'added') {
+                            handleNewPeer(change.doc.id, change.doc);
+                        }
+                        if (change.type === 'removed') {
+                            const peerId = change.doc.id;
+                            const connection = peerConnections.get(peerId);
+                            if (connection) connection.pc.close();
+                            peerConnections.delete(peerId);
+                            updateParticipantsList();
+                        }
                     });
                 });
-                peerConnection.onicecandidate = async (event) => {
-                    if (event.candidate) { await addDoc(collection(db, 'rooms', roomId, 'initiatorCandidates'), event.candidate.toJSON()); }
-                };
+                
                 const shareLink = `${window.location.origin}${window.location.pathname}?id=${roomId}`;
                 shareLinkInput.value = shareLink;
                 qrCodeContainer.innerHTML = '';
@@ -328,84 +454,140 @@
         };
 
         const joinRoom = async (roomId) => {
-            isInitiator = false;
+            isHost = false;
             startScreen.classList.add('hidden');
             shareScreen.classList.remove('hidden');
-            updateStatus('Connecting to peer...', 'progress');
+            qrCodeArea.classList.add('hidden');
+            updateStatus('Connecting...', 'progress');
             try {
                 const roomRef = doc(db, 'rooms', roomId);
                 const roomSnap = await getDoc(roomRef);
                 if (!roomSnap.exists()) {
                     updateStatus('Error: Room does not exist.', 'error');
-                    setTimeout(() => {
-                        shareScreen.classList.add('hidden');
-                        startScreen.classList.remove('hidden');
-                    }, 3000);
                     return;
                 }
-                peerConnection = new RTCPeerConnection(servers);
-                setupPeerConnectionListeners();
-                const remoteCandidateCollection = collection(db, 'rooms', roomId, 'initiatorCandidates');
-                onSnapshot(remoteCandidateCollection, (snapshot) => {
-                    snapshot.docChanges().forEach((change) => {
-                        if (change.type === 'added' && peerConnection) { peerConnection.addIceCandidate(new RTCIceCandidate(change.doc.data())); }
-                    });
-                });
-                peerConnection.onicecandidate = async (event) => {
-                    if (event.candidate) { await addDoc(collection(db, 'rooms', roomId, 'receiverCandidates'), event.candidate.toJSON()); }
-                };
-                peerConnection.ondatachannel = (event) => { dataChannel = event.channel; setupDataChannel(); };
-                const offer = roomSnap.data().offer;
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-                const answer = await peerConnection.createAnswer();
-                await peerConnection.setLocalDescription(answer);
-                await updateDoc(roomRef, { answer: { sdp: answer.sdp, type: answer.type } });
-                window.addEventListener('beforeunload', () => deleteDoc(doc(db, 'rooms',roomId)));
+                
+                roomMode = roomSnap.data().mode || 'p2p';
+                if (roomMode === 'group') {
+                    participantsContainer.classList.remove('hidden');
+                }
+
+                if (roomSnap.data().hasPassword) {
+                    passwordPromptContainer.classList.remove('hidden');
+                    passwordPromptCancel.onclick = () => window.location.href = window.location.pathname;
+                    passwordPromptSubmit.onclick = () => {
+                        roomPassword = passwordPromptInput.value;
+                        passwordErrorText.classList.add('hidden');
+                        passwordPromptContainer.classList.add('hidden');
+                        proceedWithJoin(roomId);
+                    };
+                } else {
+                    proceedWithJoin(roomId);
+                }
             } catch (error) {
                 console.error("Error joining room:", error);
                 updateStatus("Error: Could not join session.", 'error');
             }
         };
-        
-        const setupDataChannel = () => {
-            dataChannel.onopen = () => {
-                updateStatus('Connected to peer!', 'connected');
-                chatContainer.classList.remove('hidden');
-                if (isInitiator) { fileSelectionContainer.classList.remove('hidden'); }
-            };
-            dataChannel.onclose = () => {
-                updateStatus('Connection closed.', 'waiting');
-                chatContainer.classList.add('hidden');
-                fileSelectionContainer.classList.add('hidden');
-                fileConfirmationContainer.classList.add('hidden');
-                progressContainer.classList.add('hidden');
-                if (peerConnection && peerConnection.connectionState !== 'closed') {
-                    peerConnection.close();
-                }
-                peerConnection = null;
-            };
-            dataChannel.onmessage = handleDataChannelMessage;
-            dataChannel.bufferedAmountLowThreshold = BUFFERED_AMOUNT_LOW_THRESHOLD;
-        };
 
-        const handleDragOver = (e) => { e.preventDefault(); if (!fileSelectionContainer.classList.contains('hidden')) { dropZone.classList.add('drag-over'); } };
-        const handleDragLeave = (e) => { e.preventDefault(); dropZone.classList.remove('drag-over'); };
-        const handleDrop = (e) => {
-            e.preventDefault();
-            dropZone.classList.remove('drag-over');
-            if (!fileSelectionContainer.classList.contains('hidden') && e.dataTransfer.items) {
-                 handleFileSelect({ target: { files: e.dataTransfer.files } });
-                 e.dataTransfer.clearData();
+        const proceedWithJoin = async (roomId) => {
+             const pc = new RTCPeerConnection(servers);
+            peerConnections.set('host', { pc, dc: null, name: 'Host' });
+
+            pc.onicecandidate = async (event) => {
+                if (event.candidate) {
+                    const candidateCollection = collection(db, 'rooms', roomId, 'peers', localId, 'peerCandidates');
+                    await addDoc(candidateCollection, event.candidate.toJSON());
+                }
+            };
+            
+            const hostCandidates = collection(db, 'rooms', roomId, 'peers', localId, 'hostCandidates');
+            onSnapshot(hostCandidates, (snapshot) => {
+                snapshot.docChanges().forEach((change) => {
+                    if (change.type === 'added' && pc.connectionState !== 'closed') {
+                        pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
+                    }
+                });
+            });
+
+            const dc = pc.createDataChannel('file-transfer');
+            const connection = peerConnections.get('host');
+            connection.dc = dc;
+            setupDataChannel('host', connection);
+
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+
+            const peerRef = doc(db, 'rooms', roomId, 'peers', localId);
+            let offerToSend = { sdp: offer.sdp, type: offer.type };
+            if (roomPassword) {
+                offerToSend = await encryptData(offerToSend, roomPassword);
             }
+            await setDoc(peerRef, { offer: offerToSend });
+
+            onSnapshot(peerRef, async (snapshot) => {
+                let answer = snapshot.data()?.answer;
+                if (!pc.currentRemoteDescription && answer) {
+                    try {
+                        if (roomPassword) {
+                            answer = await decryptData(answer, roomPassword);
+                        }
+                        pc.setRemoteDescription(new RTCSessionDescription(answer));
+                    } catch (e) {
+                        console.error("Decryption failed - wrong password");
+                        passwordPromptInput.value = "";
+                        passwordErrorText.classList.remove('hidden');
+                        passwordPromptContainer.classList.remove('hidden');
+                        pc.close();
+                        peerConnections.delete('host');
+                    }
+                }
+            });
+            
+            window.addEventListener('beforeunload', () => deleteDoc(peerRef));
+        };
+        
+        const setupDataChannel = (id, connection) => {
+            connection.pc.onconnectionstatechange = () => {
+                console.log(`Connection state with ${id} changed to: ${connection.pc.connectionState}`);
+                if (connection.pc.connectionState === 'connected' && !isHost) {
+                    updateStatus(`Connected to ${roomMode === 'p2p' ? 'peer' : 'host'}!`, 'connected');
+                }
+                updateParticipantsList();
+            };
+            
+            connection.dc.onopen = () => {
+                console.log(`Data channel with ${id} opened.`);
+                chatContainer.classList.remove('hidden');
+                updateParticipantsList();
+                 if (roomMode === 'p2p' && isHost) {
+                    qrCodeArea.classList.add('hidden'); // Hide sharing options after one peer connects
+                }
+            };
+            connection.dc.onclose = () => {
+                console.log(`Data channel with ${id} closed.`);
+                peerConnections.delete(id);
+                updateParticipantsList();
+                 if (roomMode === 'p2p' && isHost) {
+                    qrCodeArea.classList.remove('hidden'); // Re-show sharing options
+                }
+            };
+            connection.dc.onmessage = (event) => handleDataChannelMessage(event, id);
         };
         
         const handleFileSelect = (event) => {
             const fileList = event.target.files;
             if (!fileList || fileList.length === 0) return;
 
-            zipOptionContainer.classList.add('hidden');
+            if (isHost && peerConnections.size === 0) {
+                updateStatus('Select files after a peer has connected.', 'error');
+                fileInput.value = null; 
+                return;
+            }
 
-            // Check if a directory was selected
+            zipOptionContainer.classList.add('hidden');
+            recipientSelectionContainer.classList.add('hidden');
+
             if (fileList[0].webkitRelativePath) {
                 const folderName = fileList[0].webkitRelativePath.split('/')[0];
                 filesToSend = Array.from(fileList);
@@ -420,39 +602,31 @@
                 fileInfoText.textContent = `${filesToSend.length} files selected (${formatBytes(totalSize)})`;
             }
             
-            updateStatus('Ready to send.', 'connected');
-            sendBtn.textContent = 'Send';
+            if (isHost && roomMode === 'group' && peerConnections.size > 0) {
+                recipientSelect.innerHTML = '<option value="broadcast">Broadcast to Everyone</option>';
+                for (const [peerId, connection] of peerConnections.entries()) {
+                    const option = document.createElement('option');
+                    option.value = peerId;
+                    option.textContent = connection.name;
+                    recipientSelect.appendChild(option);
+                }
+                recipientSelectionContainer.classList.remove('hidden');
+            }
+            
+            sendBtn.textContent = (roomMode === 'group' && recipientSelect.value === 'broadcast') ? 'Broadcast' : 'Send';
             fileSelectionContainer.classList.add('hidden');
             fileConfirmationContainer.classList.remove('hidden');
         };
 
-        const cancelFileSelection = () => {
-            filesToSend = [];
-            currentFileIndex = 0;
-            fileInput.value = null;
-            zipOptionContainer.classList.add('hidden');
-            fileConfirmationContainer.classList.add('hidden');
-            fileSelectionContainer.classList.remove('hidden');
-        };
-        
         const startSendingFiles = async () => {
-            // Check if the zip option is visible and checked
             if (zipCheckbox.offsetParent !== null && zipCheckbox.checked) {
                 updateStatus('Zipping folder...', 'progress');
-                await new Promise(resolve => setTimeout(resolve, 50)); 
-                
                 try {
                     const folderName = filesToSend[0].webkitRelativePath.split('/')[0];
                     const zip = new JSZip();
-                    
-                    filesToSend.forEach(file => {
-                        const path = file.webkitRelativePath;
-                        zip.file(path, file);
-                    });
-
+                    filesToSend.forEach(file => zip.file(file.webkitRelativePath, file));
                     const zipBlob = await zip.generateAsync({ type: "blob" });
-                    const zipFile = new File([zipBlob], `${folderName}.zip`, { type: "application/zip" });
-                    filesToSend = [zipFile];
+                    filesToSend = [new File([zipBlob], `${folderName}.zip`, { type: "application/zip" })];
                 } catch(err) {
                     console.error("Error zipping folder: ", err);
                     updateStatus('Error zipping folder.', 'error');
@@ -460,117 +634,194 @@
                 }
             }
 
+            sendingQueueList.innerHTML = '';
+            filesToSend.forEach((file, index) => {
+                const queueItem = document.createElement('div');
+                queueItem.innerHTML = `<div id="queue-item-${index}" class="p-2 bg-gray-700 rounded-lg"><div class="flex items-center justify-between"><div><p class="text-sm font-semibold truncate">${file.name}</p><p class="text-xs text-gray-400">${formatBytes(file.size)}</p></div><div id="queue-status-${index}" class="text-xs text-gray-400 font-semibold">Queued</div></div><div id="queue-progress-container-${index}" class="hidden w-full bg-gray-900 rounded-full h-1.5 mt-1"><div id="queue-progress-bar-${index}" class="bg-indigo-500 h-1.5 rounded-full" style="width: 0%"></div></div></div>`;
+                sendingQueueList.appendChild(queueItem);
+            });
             currentFileIndex = 0;
             fileConfirmationContainer.classList.add('hidden');
-            progressContainer.classList.remove('hidden');
-            sendNextFile();
+            sendingQueueContainer.classList.remove('hidden');
+            
+            const targetPeerId = (roomMode === 'p2p') ? peerConnections.keys().next().value : recipientSelect.value;
+            sendNextFile(targetPeerId);
         };
         
-        const sendNextFile = () => {
+        const sendToTarget = (targetPeerId, data, excludePeerId = null) => {
+            if (targetPeerId === 'broadcast') {
+                broadcastToPeers(data, excludePeerId);
+            } else {
+                const connection = peerConnections.get(targetPeerId);
+                if (connection && connection.dc && connection.dc.readyState === 'open') {
+                    connection.dc.send(data);
+                }
+            }
+        };
+
+        const broadcastToPeers = (data, excludePeerId = null) => {
+            for (const [peerId, connection] of peerConnections.entries()) {
+                if (peerId !== excludePeerId && connection.dc && connection.dc.readyState === 'open') {
+                    connection.dc.send(data);
+                }
+            }
+        };
+        
+        const sendNextFile = (targetPeerId) => {
             if (currentFileIndex >= filesToSend.length) {
-                updateStatus('All files sent successfully.', 'connected');
-                cancelFileSelection();
+                updateStatus('Send complete.', 'connected');
                 return;
             }
-
+            const statusEl = document.getElementById(`queue-status-${currentFileIndex}`);
+            const progressContainerEl = document.getElementById(`queue-progress-container-${currentFileIndex}`);
+            if(statusEl) statusEl.textContent = 'Sending...';
+            if(progressContainerEl) progressContainerEl.classList.remove('hidden');
             const file = filesToSend[currentFileIndex];
-            updateStatus(`Sending file ${currentFileIndex + 1} of ${filesToSend.length}: ${file.name}`, 'progress');
-            
+            const statusMessage = (targetPeerId === 'broadcast' || roomMode === 'group') ? 'Broadcasting' : 'Sending';
+            updateStatus(`${statusMessage} ${currentFileIndex + 1}/${filesToSend.length}: ${file.name}`, 'progress');
             fileMetadata = { name: file.name, size: file.size, type: file.type };
-            const metadataPayload = { type: 'metadata', payload: fileMetadata };
-            dataChannel.send(JSON.stringify(metadataPayload));
-
+            sendToTarget(targetPeerId, JSON.stringify({ type: 'metadata', payload: fileMetadata }));
+            
             let offset = 0;
             const fileReader = new FileReader();
-
+            
+            const checkAndRead = () => {
+                let allReady = false;
+                const targets = (targetPeerId === 'broadcast') ? Array.from(peerConnections.values()) : [peerConnections.get(targetPeerId)];
+                allReady = targets.every(c => c && c.dc && c.dc.bufferedAmount < BUFFERED_AMOUNT_LOW_THRESHOLD);
+                if(allReady) readNextChunk();
+            };
+            
             const readNextChunk = () => {
                 const slice = file.slice(offset, offset + CHUNK_SIZE);
                 fileReader.readAsArrayBuffer(slice);
             };
-
+            
             fileReader.onload = () => {
-                try {
-                    if (!dataChannel || dataChannel.readyState !== 'open') {
-                        console.log('Data channel is not open, aborting send.');
-                        updateStatus('Connection lost while sending.', 'error');
-                        return;
-                    }
-                    dataChannel.send(fileReader.result);
-                    offset += fileReader.result.byteLength;
-                    updateProgressBar(offset, file.size);
-
-                    if (offset < file.size) {
-                        if (dataChannel.bufferedAmount < BUFFERED_AMOUNT_LOW_THRESHOLD) {
-                            readNextChunk();
-                        }
-                    } else {
-                        currentFileIndex++;
-                        sendNextFile();
-                    }
-                } catch (error) {
-                    console.error("Error sending file chunk:", error);
-                    updateStatus(`Error sending ${file.name}.`, 'error');
-                }
-            };
-            
-            dataChannel.onbufferedamountlow = () => {
+                sendToTarget(targetPeerId, fileReader.result);
+                offset += fileReader.result.byteLength;
+                updateProgressBar(offset, file.size, currentFileIndex);
                 if (offset < file.size) {
-                    readNextChunk();
+                    checkAndRead();
+                } else {
+                    const doneStatusEl = document.getElementById(`queue-status-${currentFileIndex}`);
+                    if(doneStatusEl) doneStatusEl.textContent = 'Done ✓';
+                    currentFileIndex++;
+                    sendNextFile(targetPeerId);
                 }
             };
-            
-            readNextChunk();
-        };
 
-        const sendChatMessage = () => {
-            const message = chatInput.value;
-            if (!message.trim() || !dataChannel || dataChannel.readyState !== 'open') return;
-            const chatPayload = { type: 'chat', payload: message };
-            dataChannel.send(JSON.stringify(chatPayload));
-            appendChatMessage(message, 'sent');
-            chatInput.value = '';
-        };
-
-        const appendChatMessage = (message, type) => {
-            const messageEl = document.createElement('p');
-            const prefix = type === 'sent' ? 'You: ' : 'Peer: ';
-            messageEl.textContent = prefix + message;
-            messageEl.className = type === 'sent' ? 'text-right text-indigo-300' : 'text-left text-emerald-300';
-            chatLog.appendChild(messageEl);
-            chatLog.scrollTop = chatLog.scrollHeight;
+            const connectionsToCheck = (targetPeerId === 'broadcast') ? Array.from(peerConnections.values()) : [peerConnections.get(targetPeerId)];
+            for (const connection of connectionsToCheck) {
+                if (connection && connection.dc) {
+                    connection.dc.onbufferedamountlow = () => {
+                        if (offset < file.size) checkAndRead();
+                    };
+                }
+            }
+            checkAndRead();
         };
         
-        const handleDataChannelMessage = (event) => {
-            if (typeof event.data === 'string') {
+        const handleDataChannelMessage = async (event, senderId) => {
+            let data = event.data;
+            if (typeof data === 'string') {
                 try {
-                    const data = JSON.parse(event.data);
-                    if (data.type === 'chat') {
-                        appendChatMessage(data.payload, 'received');
-                    } else if (data.type === 'metadata') {
-                        fileMetadata = data.payload;
-                        receiveBuffer = [];
-                        receivedSize = 0;
-                        progressBar.style.width = '0%';
-                        progressContainer.classList.remove('hidden');
-                        updateStatus(`Receiving file: ${fileMetadata.name}`, 'progress');
+                    let parsedData = JSON.parse(data);
+                    if (parsedData.type) {
+                        if (roomPassword && parsedData.encrypted) {
+                            parsedData.payload = await decryptData(parsedData.payload, roomPassword);
+                        }
+                        if (parsedData.type === 'chat') {
+                            if (isHost) broadcastToPeers(JSON.stringify(parsedData), senderId);
+                            appendChatMessage(parsedData.payload, 'received', parsedData.sender);
+                        } else if (parsedData.type === 'metadata') {
+                           fileMetadata = parsedData.payload;
+                           receiveBuffer = [];
+                           receivedSize = 0;
+                           updateStatus(`Receiving file: ${fileMetadata.name}`, 'progress');
+                        }
+                        return;
                     }
-                } catch(e) { console.error("Error parsing data message", e); }
-                return;
+                } catch(e) { /* Not a JSON control message */ }
             }
-            receiveBuffer.push(event.data);
-            receivedSize += event.data.byteLength;
-            updateProgressBar(receivedSize, fileMetadata.size);
-            if (receivedSize === fileMetadata.size) {
+            
+            receiveBuffer.push(data);
+            receivedSize += (data instanceof ArrayBuffer) ? data.byteLength : data.size;
+            if (fileMetadata && receivedSize === fileMetadata.size) {
                 const receivedFile = new Blob(receiveBuffer, { type: fileMetadata.type });
                 const link = document.createElement('a');
                 link.href = URL.createObjectURL(receivedFile);
                 link.download = fileMetadata.name;
                 link.textContent = `${fileMetadata.name} (${formatBytes(fileMetadata.size)})`;
                 link.className = 'w-full block bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3 rounded-lg text-sm text-center';
-                downloadList.appendChild(link);
-                downloadContainer.classList.remove('hidden');
-                updateStatus(`File "${fileMetadata.name}" received. Waiting for next file...`, 'connected');
+                receivedFilesList.appendChild(link);
+                receivedFilesContainer.classList.remove('hidden');
+                updateStatus(`File "${fileMetadata.name}" received.`, 'connected');
             }
+        };
+
+        const sendChatMessage = async () => {
+            const message = chatInput.value;
+            if (!message.trim()) return;
+            const senderName = isHost ? 'Host' : `Peer ${localId.substring(0, 4)}`;
+            let chatPayload = { type: 'chat', payload: message, sender: senderName };
+
+            if (roomPassword) {
+                chatPayload.payload = await encryptData(message, roomPassword);
+                chatPayload.encrypted = true;
+            }
+
+            const payloadString = JSON.stringify(chatPayload);
+
+            if (isHost) {
+                broadcastToPeers(payloadString);
+            } else {
+                const hostConnection = peerConnections.get('host');
+                if (hostConnection && hostConnection.dc && hostConnection.dc.readyState === 'open') {
+                    hostConnection.dc.send(payloadString);
+                }
+            }
+            appendChatMessage(message, 'sent');
+            chatInput.value = '';
+        };
+
+        const appendChatMessage = (message, type, sender = 'You') => {
+            const messageEl = document.createElement('p');
+            const prefix = type === 'sent' ? 'You: ' : `${sender}: `;
+            messageEl.textContent = prefix + message;
+            messageEl.className = type === 'sent' ? 'text-right text-indigo-300' : 'text-left text-emerald-300';
+            chatLog.appendChild(messageEl);
+            chatLog.scrollTop = chatLog.scrollHeight;
+        };
+
+        const updateParticipantsList = () => {
+            participantsList.innerHTML = '';
+            if (isHost) {
+                 const hostEl = document.createElement('div');
+                 hostEl.className = 'p-2 bg-gray-700 rounded-lg text-sm font-semibold flex justify-between items-center';
+                 hostEl.innerHTML = `<span>You (Host)</span> <span class="text-xs text-green-400">Connected</span>`;
+                 participantsList.appendChild(hostEl);
+            }
+            for (const [peerId, connection] of peerConnections.entries()) {
+                const peerEl = document.createElement('div');
+                const state = connection.pc.connectionState;
+                const statusColor = state === 'connected' ? 'text-green-400' : 'text-yellow-400';
+                peerEl.className = 'p-2 bg-gray-700 rounded-lg text-sm font-semibold flex justify-between items-center';
+                peerEl.innerHTML = `<span>${connection.name}</span> <span class="text-xs ${statusColor}">${state}</span>`;
+                participantsList.appendChild(peerEl);
+            }
+        };
+        
+        const cancelFileSelection = () => {
+            filesToSend = [];
+            currentFileIndex = 0;
+            fileInput.value = null;
+            zipOptionContainer.classList.add('hidden');
+            recipientSelectionContainer.classList.add('hidden');
+            fileConfirmationContainer.classList.add('hidden');
+            sendingQueueContainer.classList.add('hidden');
+            sendingQueueList.innerHTML = '';
+            fileSelectionContainer.classList.remove('hidden');
         };
 
         const shareOrCopyLink = async () => {
@@ -607,9 +858,12 @@
             else { statusText.appendChild(document.createTextNode(` ${text}`)); }
         };
         
-        const updateProgressBar = (value, max) => {
-            const percentage = Math.round((value / max) * 100);
-            progressBar.style.width = `${percentage}%`;
+        const updateProgressBar = (value, max, index) => {
+            const progressBar = document.getElementById(`queue-progress-bar-${index}`);
+            if(progressBar) {
+                const percentage = Math.round((value / max) * 100);
+                progressBar.style.width = `${percentage}%`;
+            }
         };
 
         const formatBytes = (bytes, decimals = 2) => {
@@ -620,22 +874,19 @@
             const i = Math.floor(Math.log(bytes) / Math.log(k));
             return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
         };
-
-        // --- Start the App ---
+        
+        const handleDragOver = (e) => { e.preventDefault(); if (!fileSelectionContainer.classList.contains('hidden')) { dropZone.classList.add('drag-over'); } };
+        const handleDragLeave = (e) => { e.preventDefault(); dropZone.classList.remove('drag-over'); };
+        const handleDrop = (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+            if (!fileSelectionContainer.classList.contains('hidden') && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                 handleFileSelect({ target: { files: e.dataTransfer.files } });
+                 e.dataTransfer.clearData();
+            }
+        };
+        
         initialize();
-
-        // Register the Service Worker
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/sw.js')
-                    .then(registration => {
-                        console.log('ServiceWorker registration successful with scope: ', registration.scope);
-                    })
-                    .catch(err => {
-                        console.log('ServiceWorker registration failed: ', err);
-                    });
-            });
-        }
     </script>
 </body>
 </html>
