@@ -11,6 +11,8 @@
     <link rel="apple-touch-icon" href="https://placehold.co/180x180/4f46e5/ffffff?text=DD">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+    <!-- ADDED: JSZip library for folder zipping -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body {
@@ -44,14 +46,44 @@
         }
         html, body {
             height: 100%;
-            overflow: hidden;
+            /* MODIFIED: Removed overflow: hidden to allow the page to scroll */
         }
         .app-container {
-             height: 100%;
+             /* MODIFIED: Changed to min-height to allow container to grow */
+             min-height: 100%;
         }
         .drag-over {
             border: 2px dashed #818cf8;
             transform: scale(1.02);
+        }
+
+        /* --- Custom Scrollbar Styles --- */
+        #download-list::-webkit-scrollbar,
+        #chat-log::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        #download-list::-webkit-scrollbar-track,
+        #chat-log::-webkit-scrollbar-track {
+            background: #111827; /* bg-gray-900 */
+            border-radius: 10px;
+        }
+
+        #download-list::-webkit-scrollbar-thumb,
+        #chat-log::-webkit-scrollbar-thumb {
+            background: #4f46e5; /* bg-indigo-600 */
+            border-radius: 10px;
+        }
+
+        #download-list::-webkit-scrollbar-thumb:hover,
+        #chat-log::-webkit-scrollbar-thumb:hover {
+            background: #4338ca; /* bg-indigo-700 */
+        }
+
+        /* For Firefox */
+        #download-list, #chat-log {
+          scrollbar-width: thin;
+          scrollbar-color: #4f46e5 #111827;
         }
     </style>
 </head>
@@ -113,18 +145,25 @@
                 <!-- File Selection -->
                 <div id="file-selection-container" class="hidden">
                      <label for="file-input" class="w-full cursor-pointer bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105 text-center block">
-                         Select Files (or Drag & Drop)
+                         Select Files or a Folder
                     </label>
-                    <input type="file" id="file-input" class="hidden" multiple>
+                    <input type="file" id="file-input" class="hidden" multiple webkitdirectory>
                 </div>
 
                 <!-- File Confirmation -->
                 <div id="file-confirmation-container" class="hidden space-y-3 text-center">
                     <p class="text-gray-300">Ready to send:</p>
                     <p id="file-info-text" class="font-semibold text-white bg-gray-700 p-3 rounded-lg"></p>
+                    
+                    <!-- NEW: Zip option for folders -->
+                    <div id="zip-option-container" class="hidden text-left text-sm text-gray-300 items-center justify-center flex space-x-2">
+                        <input type="checkbox" id="zip-folder-checkbox" class="h-4 w-4 rounded bg-gray-700 border-gray-600 text-indigo-600 focus:ring-indigo-500">
+                        <label for="zip-folder-checkbox">Send folder as a single .zip file</label>
+                    </div>
+
                     <div class="flex space-x-3">
                         <button id="cancel-btn" class="w-full bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition">Cancel</button>
-                        <button id="send-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition">Send Files</button>
+                        <button id="send-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition">Send</button>
                     </div>
                 </div>
 
@@ -165,8 +204,8 @@
                 },
             ],
         };
-        const CHUNK_SIZE = 256 * 1024; // 256KB -- Increased for faster transfers on stable networks
-        const BUFFERED_AMOUNT_LOW_THRESHOLD = 16 * 1024 * 1024; // 16MB
+        const CHUNK_SIZE = 256 * 1024; 
+        const BUFFERED_AMOUNT_LOW_THRESHOLD = 16 * 1024 * 1024;
 
         // --- DOM Elements ---
         const dropZone = document.getElementById('drop-zone');
@@ -193,6 +232,8 @@
         const progressBar = document.getElementById('progress-bar');
         const downloadContainer = document.getElementById('download-container');
         const downloadList = document.getElementById('download-list');
+        const zipOptionContainer = document.getElementById('zip-option-container');
+        const zipCheckbox = document.getElementById('zip-folder-checkbox');
 
         // --- Global State ---
         let peerConnection;
@@ -201,7 +242,7 @@
         let receivedSize = 0;
         let fileMetadata = null;
         let isInitiator = false;
-        let selectedFiles = [];
+        let filesToSend = [];
         let currentFileIndex = 0;
 
         // --- Core Logic ---
@@ -228,7 +269,6 @@
                 console.log(`Connection state changed to: ${peerConnection.connectionState}`);
                 switch (peerConnection.connectionState) {
                     case 'connected':
-                        // Connection is active, already handled by dataChannel.onopen
                         break;
                     case 'disconnected':
                         updateStatus('Connection temporarily lost, attempting to reconnect...', 'progress');
@@ -280,7 +320,6 @@
                 shareLinkInput.value = shareLink;
                 qrCodeContainer.innerHTML = '';
                 new QRCode(qrCodeContainer, { text: shareLink, width: 144, height: 144, colorDark : "#000000", colorLight : "#ffffff", correctLevel : QRCode.CorrectLevel.H });
-                qrCodeContainer.classList.remove('hidden');
                 window.addEventListener('beforeunload', () => deleteDoc(doc(db, 'rooms', roomId)));
             } catch (error) {
                 console.error("Error creating room:", error);
@@ -354,31 +393,73 @@
         const handleDrop = (e) => {
             e.preventDefault();
             dropZone.classList.remove('drag-over');
-            if (!fileSelectionContainer.classList.contains('hidden') && e.dataTransfer.files) {
-                processSelectedFiles(e.dataTransfer.files);
-                e.dataTransfer.clearData();
+            if (!fileSelectionContainer.classList.contains('hidden') && e.dataTransfer.items) {
+                 handleFileSelect({ target: { files: e.dataTransfer.files } });
+                 e.dataTransfer.clearData();
             }
         };
         
-        const processSelectedFiles = (fileList) => {
+        const handleFileSelect = (event) => {
+            const fileList = event.target.files;
             if (!fileList || fileList.length === 0) return;
-            selectedFiles = Array.from(fileList);
-            const totalSize = selectedFiles.reduce((acc, file) => acc + file.size, 0);
-            fileInfoText.textContent = `${selectedFiles.length} files selected (${formatBytes(totalSize)})`;
+
+            zipOptionContainer.classList.add('hidden');
+
+            // Check if a directory was selected
+            if (fileList[0].webkitRelativePath) {
+                const folderName = fileList[0].webkitRelativePath.split('/')[0];
+                filesToSend = Array.from(fileList);
+                const totalSize = filesToSend.reduce((acc, file) => acc + file.size, 0);
+                fileInfoText.textContent = `Folder: ${folderName} (${filesToSend.length} files, ${formatBytes(totalSize)})`;
+                
+                zipOptionContainer.classList.remove('hidden');
+                zipCheckbox.checked = true;
+            } else {
+                filesToSend = Array.from(fileList);
+                const totalSize = filesToSend.reduce((acc, file) => acc + file.size, 0);
+                fileInfoText.textContent = `${filesToSend.length} files selected (${formatBytes(totalSize)})`;
+            }
+            
+            updateStatus('Ready to send.', 'connected');
+            sendBtn.textContent = 'Send';
             fileSelectionContainer.classList.add('hidden');
             fileConfirmationContainer.classList.remove('hidden');
         };
 
-        const handleFileSelect = (event) => { processSelectedFiles(event.target.files); };
         const cancelFileSelection = () => {
-            selectedFiles = [];
+            filesToSend = [];
             currentFileIndex = 0;
             fileInput.value = null;
+            zipOptionContainer.classList.add('hidden');
             fileConfirmationContainer.classList.add('hidden');
             fileSelectionContainer.classList.remove('hidden');
         };
         
-        const startSendingFiles = () => {
+        const startSendingFiles = async () => {
+            // Check if the zip option is visible and checked
+            if (zipCheckbox.offsetParent !== null && zipCheckbox.checked) {
+                updateStatus('Zipping folder...', 'progress');
+                await new Promise(resolve => setTimeout(resolve, 50)); 
+                
+                try {
+                    const folderName = filesToSend[0].webkitRelativePath.split('/')[0];
+                    const zip = new JSZip();
+                    
+                    filesToSend.forEach(file => {
+                        const path = file.webkitRelativePath;
+                        zip.file(path, file);
+                    });
+
+                    const zipBlob = await zip.generateAsync({ type: "blob" });
+                    const zipFile = new File([zipBlob], `${folderName}.zip`, { type: "application/zip" });
+                    filesToSend = [zipFile];
+                } catch(err) {
+                    console.error("Error zipping folder: ", err);
+                    updateStatus('Error zipping folder.', 'error');
+                    return;
+                }
+            }
+
             currentFileIndex = 0;
             fileConfirmationContainer.classList.add('hidden');
             progressContainer.classList.remove('hidden');
@@ -386,14 +467,14 @@
         };
         
         const sendNextFile = () => {
-            if (currentFileIndex >= selectedFiles.length) {
+            if (currentFileIndex >= filesToSend.length) {
                 updateStatus('All files sent successfully.', 'connected');
                 cancelFileSelection();
                 return;
             }
 
-            const file = selectedFiles[currentFileIndex];
-            updateStatus(`Sending file ${currentFileIndex + 1} of ${selectedFiles.length}: ${file.name}`, 'progress');
+            const file = filesToSend[currentFileIndex];
+            updateStatus(`Sending file ${currentFileIndex + 1} of ${filesToSend.length}: ${file.name}`, 'progress');
             
             fileMetadata = { name: file.name, size: file.size, type: file.type };
             const metadataPayload = { type: 'metadata', payload: fileMetadata };
