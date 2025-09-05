@@ -228,7 +228,15 @@
                 if (id) {
                     joinRoom(id);
                 } else {
-                    console.log('Please enter a Room ID.'); 
+                    // CORRECTED: Provide user-facing feedback instead of just logging to console.
+                    const originalStatus = statusText.textContent;
+                    const originalState = statusContainer.className;
+                    updateStatus('Please enter a Room ID.', 'error');
+                    setTimeout(() => {
+                        // Restore previous status after 3 seconds
+                        statusText.textContent = originalStatus;
+                        statusContainer.className = originalState;
+                    }, 3000);
                 }
             });
             copyBtn.addEventListener('click', shareOrCopyLink);
@@ -282,6 +290,7 @@
                 await setDoc(roomRef, { offer: { sdp: offer.sdp, type: offer.type } });
                 onSnapshot(roomRef, (doc) => {
                     const data = doc.data();
+                    // CORRECTED: Check if peerConnection exists before using it to prevent race condition.
                     if (peerConnection && !peerConnection.currentRemoteDescription && data?.answer) {
                         peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
                     }
@@ -289,6 +298,7 @@
                 const remoteCandidateCollection = collection(db, 'rooms', roomId, 'receiverCandidates');
                 onSnapshot(remoteCandidateCollection, (snapshot) => {
                     snapshot.docChanges().forEach((change) => {
+                        // CORRECTED: Check if peerConnection exists before using it.
                         if (change.type === 'added' && peerConnection) { peerConnection.addIceCandidate(new RTCIceCandidate(change.doc.data())); }
                     });
                 });
@@ -329,6 +339,7 @@
                 const remoteCandidateCollection = collection(db, 'rooms', roomId, 'initiatorCandidates');
                 onSnapshot(remoteCandidateCollection, (snapshot) => {
                     snapshot.docChanges().forEach((change) => {
+                        // CORRECTED: Check if peerConnection exists before using it.
                         if (change.type === 'added' && peerConnection) { peerConnection.addIceCandidate(new RTCIceCandidate(change.doc.data())); }
                     });
                 });
@@ -429,6 +440,7 @@
 
             fileReader.onload = () => {
                 try {
+                    // CORRECTED: Check if data channel is still open before sending to prevent race condition.
                     if (!dataChannel || dataChannel.readyState !== 'open') {
                         console.log('Data channel is not open, aborting send.');
                         updateStatus('Connection lost while sending.', 'error');
