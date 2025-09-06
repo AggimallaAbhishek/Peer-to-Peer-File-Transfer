@@ -98,6 +98,11 @@
 </head>
 <body class="bg-gray-900 text-white">
 
+    <!-- NEW: Install App Button -->
+    <button id="install-btn" class="hidden fixed top-4 right-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-lg z-50 transition transform hover:scale-105">
+        Install App
+    </button>
+
     <div class="app-container flex items-center justify-center p-4">
         <div id="drop-zone" class="w-full max-w-md p-8 space-y-4 bg-gray-800 rounded-2xl shadow-xl transition-all duration-200">
             <!-- Header -->
@@ -339,6 +344,7 @@
         const passwordPromptCancel = document.getElementById('password-prompt-cancel');
         const passwordPromptSubmit = document.getElementById('password-prompt-submit');
         const privacyNotice = document.getElementById('privacy-notice');
+        const installBtn = document.getElementById('install-btn');
 
         // --- Global State ---
         let peerConnections = new Map();
@@ -352,6 +358,7 @@
         let roomId;
         let roomMode = 'p2p';
         let roomPassword = null;
+        let deferredInstallPrompt = null;
 
         // --- Crypto Helpers ---
         async function deriveKey(password, salt) {
@@ -409,6 +416,28 @@
             dropZone.addEventListener('dragover', handleDragOver);
             dropZone.addEventListener('dragleave', handleDragLeave);
             dropZone.addEventListener('drop', handleDrop);
+
+            window.addEventListener('beforeinstallprompt', (e) => {
+                e.preventDefault();
+                deferredInstallPrompt = e;
+                installBtn.classList.remove('hidden');
+            });
+
+            installBtn.addEventListener('click', async () => {
+                if (deferredInstallPrompt) {
+                    deferredInstallPrompt.prompt();
+                    const { outcome } = await deferredInstallPrompt.userChoice;
+                    console.log(`User response to the install prompt: ${outcome}`);
+                    deferredInstallPrompt = null;
+                    installBtn.classList.add('hidden');
+                }
+            });
+
+            window.addEventListener('appinstalled', () => {
+                deferredInstallPrompt = null;
+                installBtn.classList.add('hidden');
+                console.log('PWA was installed');
+            });
         };
         
         const handleNewPeer = async (peerId, peerDoc) => {
@@ -848,17 +877,32 @@
             receivedSize += (data instanceof ArrayBuffer) ? data.byteLength : data.size;
             if (fileMetadata && receivedSize === fileMetadata.size) {
                 const receivedFile = new Blob(receiveBuffer, { type: fileMetadata.type });
-                const link = document.createElement('a');
-                link.href = URL.createObjectURL(receivedFile);
-                link.download = fileMetadata.name;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                URL.revokeObjectURL(link.href);
-
+                
                 const receivedItem = document.createElement('div');
-                receivedItem.className = 'w-full block bg-gray-700 text-white font-bold py-2 px-3 rounded-lg text-sm text-left';
-                receivedItem.innerHTML = `<p class="font-semibold truncate">${fileMetadata.name}</p><p class="text-xs text-gray-400">${formatBytes(fileMetadata.size)} - Downloaded</p>`;
+                receivedItem.className = 'w-full bg-gray-700 p-2 rounded-lg text-sm flex items-center justify-between';
+                
+                const fileInfo = document.createElement('div');
+                fileInfo.innerHTML = `<p class="font-semibold truncate">${fileMetadata.name}</p><p class="text-xs text-gray-400">${formatBytes(fileMetadata.size)}</p>`;
+                
+                const downloadButton = document.createElement('button');
+                downloadButton.textContent = 'Download';
+                downloadButton.className = 'bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1 px-3 rounded-md text-xs';
+                downloadButton.onclick = () => {
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(receivedFile);
+                    link.download = fileMetadata.name;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(link.href);
+                    downloadButton.textContent = 'Downloaded!';
+                    downloadButton.disabled = true;
+                    downloadButton.classList.remove('bg-emerald-600', 'hover:bg-emerald-700');
+                    downloadButton.classList.add('bg-gray-500', 'cursor-not-allowed');
+                };
+
+                receivedItem.appendChild(fileInfo);
+                receivedItem.appendChild(downloadButton);
                 receivedFilesList.appendChild(receivedItem);
 
                 receivedFilesContainer.classList.remove('hidden');
@@ -1054,7 +1098,6 @@
             showTextBtn.classList.remove('bg-gray-600', 'text-white');
             showTextBtn.classList.add('text-gray-400');
 
-            fileConfirmationContainer.classList.add('hidden');
             fileSelectionContainer.classList.remove('hidden');
             textSelectionContainer.classList.add('hidden');
         };
@@ -1066,7 +1109,6 @@
             showFilesBtn.classList.add('text-gray-400');
 
             textSelectionContainer.classList.remove('hidden');
-            fileConfirmationContainer.classList.add('hidden');
             fileSelectionContainer.classList.add('hidden');
         };
 
