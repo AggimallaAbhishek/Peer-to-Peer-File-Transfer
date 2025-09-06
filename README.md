@@ -1,6 +1,6 @@
 **This is the live demo link to the website** -- https://p2pfile-transfer.netlify.app/
 
-<img width="1000" height="1000" alt="https___p2pfile-transfer netlify app_" src="https://github.com/user-attachments/assets/6ee7f95f-2f27-43a1-9b10-93560f80a6fd" />
+<img width="100" height="100" alt="https___p2pfile-transfer netlify app_" src="https://github.com/user-attachments/assets/6ee7f95f-2f27-43a1-9b10-93560f80a6fd" />
 
 # DirectDrop – Secure P2P File Sharing 🔗✨
 
