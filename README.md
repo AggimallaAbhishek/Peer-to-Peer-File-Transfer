@@ -1,93 +1,90 @@
 **This is the live demo link to the website** -- https://p2pfile-transfer.netlify.app/
 
 
-DirectDrop - Secure P2P File Sharing
-DirectDrop is a secure, decentralized, and privacy-focused peer-to-peer (P2P) file sharing application built entirely with web technologies. It uses WebRTC for direct data transfer between browsers, eliminating the need for a central server to handle your files. A lightweight signaling server using Firebase Firestore is used only for the initial connection setup.
+DirectDrop – Secure P2P File Sharing 🔗✨
+DirectDrop is a fast, private, and serverless file sharing app that connects devices directly 🌍💫 — no central server, no storage risk. It works right from your browser and can be installed as a PWA app 📱💻.
 
-Features
-Serverless File Transfers: Files are sent directly between peers (browsers) using WebRTC, ensuring privacy and speed.
+Why DirectDrop? 🔒⚡
+No Servers, No Middlemen – Files transfer directly via WebRTC 🚀.
 
-Multiple Sharing Modes:
+End-to-End Encryption – Locked with AES-GCM 🔑.
 
-1-to-1 Sharing: Create a private room for secure transfer with a single person.
+Cross-Device Friendly – Use it on desktop, mobile, or as an installable app 📲.
 
-Group Broadcasting: Host a room and broadcast files, text, and messages to multiple participants simultaneously.
+Privacy First – Signaling data is cleared instantly 🗑️. Group rooms expire in 1 hour ⏳.
 
-End-to-End Encryption: Secure your group sessions with a password. All data (files, text, and chat) is encrypted end-to-end using the Web Crypto API (AES-GCM).
+Key Features 🌟
+Flexible Sharing Modes
 
-Versatile Sharing:
+👥 1-to-1 Sharing – Private transfers made simple.
 
-Files & Folders: Share individual files or entire folders.
+📡 Group Broadcast – Share with multiple people at once.
 
-Folder Zipping: Automatically compress and send folders as a single .zip file.
+Versatile Sharing
 
-Text Snippets: Quickly share code snippets, notes, or links.
+📂 Files & Folders (auto-zipped for convenience).
 
-Easy Connection:
+📝 Text notes, links, and code snippets.
 
-Shareable Link: Instantly generate a unique link for your session.
+Simple & Seamless Connection
 
-QR Code: A scannable QR code is created for easily connecting mobile devices.
+🔗 Share a unique link or
 
-Real-time Communication: An integrated chat allows participants to communicate during the session.
+📷 Scan a QR code to connect instantly.
 
-Privacy-First Design:
+Smooth User Experience
 
-P2P Session Cleanup: The signaling room for 1-to-1 sessions is deleted from the server the moment a connection is established.
+📤 Drag & drop file sharing.
 
-Group Session Expiry: Group rooms and their metadata are automatically deleted after 1 hour.
+⏳ Real-time progress indicators.
 
-Progressive Web App (PWA): Installable on both mobile and desktop platforms for a native app-like experience.
+💬 Built-in chat during transfers.
 
-Modern UI: A clean, responsive, and user-friendly interface with drag-and-drop support, real-time progress indicators, and a dark mode theme.
+🌙 Sleek dark mode design.
 
-How It Works
-The application leverages WebRTC to create a direct peer-to-peer connection. However, to initiate this connection, peers need a way to find and communicate with each other. This process is called signaling.
+How It Works ⚙️
+🏠 Host starts a session → A unique link + QR code is generated.
 
-Initiation (Host): The user who creates a room becomes the "host." The application generates a unique roomId and stores it in a Firebase Firestore document.
+👤 Peers join using the link/QR → Initial signaling via Firestore.
 
-Signaling: The host generates a WebRTC "offer" and a share link (.../?id=<roomId>). When a peer joins using this link, they generate a WebRTC "answer." These offers and answers, along with ICE candidates (which describe how to connect), are exchanged via the Firestore document.
+🔗 Direct connection established → Encrypted WebRTC channel.
 
-Direct Connection: Once the signaling is complete, a direct, secure RTCPeerConnection is established between the users.
+📦 Transfer files instantly → Fast & secure.
 
-Data Transfer: All files, text, and chat messages are now sent directly through this encrypted P2P channel, bypassing any central server.
+🧹 Auto cleanup → Data deleted right after use.
 
-Cleanup: For maximum privacy, the Firestore document acting as the signaling channel is automatically deleted immediately after a 1-to-1 connection is made or after 1 hour for group rooms.
+Getting Started 🚀
+Host:
 
-How to Use
-To Share (as Host):
-Open the DirectDrop application.
+Open DirectDrop → Choose 1-to-1 or Group Broadcast.
 
-Choose "Share with One Person" or "Broadcast to a Group".
+🔐 (Optional) Add a password for group sessions.
 
-(Optional) For group sharing, enter a password to encrypt the session.
+Share the link/QR code.
 
-Share the generated link or have the other person scan the QR code.
+Start sharing files, folders, or texts instantly 🎉.
 
-Wait for the peer(s) to connect.
+Peer:
 
-Once connected, select files/folders, type text, or chat to share.
+Click link or scan QR 🔗.
 
-To Receive (as Peer):
-Open the share link provided by the host.
+(Optional) Enter session password 🔑.
 
-(Optional) If the room is password-protected, you will be prompted to enter the password.
+Receive files in real-time ⚡ and download instantly ⬇️.
 
-Wait to be connected to the host.
-
-Once connected, you will be able to receive files, text, and chat messages. Download buttons will appear for any received files.
-
-Technology Stack
+Tech Stack 🛠️
 Frontend: HTML5, CSS3, JavaScript (ES Modules)
 
-Styling: Tailwind CSS
+UI Styling: Tailwind CSS 🎨
 
-P2P Communication: WebRTC (RTCPeerConnection, RTCDataChannel)
+P2P Engine: WebRTC 🔗
 
-Signaling: Google Firebase Firestore
+Signaling Server: Firebase Firestore ☁️
 
-QR Code Generation: qrcode.js
+File Compression: JSZip 📦
 
-File Compression: jszip.min.js
+Encryption: Web Crypto API (AES-GCM) 🛡️
 
-Encryption: Web Crypto API (AES-GCM)
+QR Code Generator: qrcode.js 📷
+
+✨ With DirectDrop, sharing is as simple as Click ➝ Connect ➝ Send 🚀🔗🎉
