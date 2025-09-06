@@ -98,7 +98,6 @@
 </head>
 <body class="bg-gray-900 text-white">
 
-    <!-- NEW: Install App Button -->
     <button id="install-btn" class="hidden fixed top-4 right-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-lg z-50 transition transform hover:scale-105">
         Install App
     </button>
@@ -236,6 +235,10 @@
                     <div id="received-text-list" class="space-y-2 max-h-48 overflow-y-auto"></div>
                 </div>
 
+                 <button id="stop-share-btn" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105 mt-4">
+                    Stop Share
+                </button>
+
             </div>
         </div>
     </div>
@@ -345,13 +348,12 @@
         const passwordPromptSubmit = document.getElementById('password-prompt-submit');
         const privacyNotice = document.getElementById('privacy-notice');
         const installBtn = document.getElementById('install-btn');
+        const stopShareBtn = document.getElementById('stop-share-btn');
 
         // --- Global State ---
         let peerConnections = new Map();
+        let receivingStates = new Map(); // Key: peerId, Value: { metadata, buffer, size }
         let localId;
-        let receiveBuffer = [];
-        let receivedSize = 0;
-        let fileMetadata = null;
         let isHost = false;
         let filesToSend = [];
         let currentFileIndex = 0;
@@ -359,6 +361,7 @@
         let roomMode = 'p2p';
         let roomPassword = null;
         let deferredInstallPrompt = null;
+        let roomUnsubscribe = null;
 
         // --- Crypto Helpers ---
         async function deriveKey(password, salt) {
@@ -416,6 +419,7 @@
             dropZone.addEventListener('dragover', handleDragOver);
             dropZone.addEventListener('dragleave', handleDragLeave);
             dropZone.addEventListener('drop', handleDrop);
+            stopShareBtn.addEventListener('click', stopSharing);
 
             window.addEventListener('beforeinstallprompt', (e) => {
                 e.preventDefault();
@@ -446,7 +450,8 @@
 
             console.log(`New peer detected: ${peerId}`);
             const pc = new RTCPeerConnection(servers);
-            peerConnections.set(peerId, { pc, dc: null, name: `Peer ${peerId.substring(0, 4)}` });
+            const connection = { pc, dc: null, name: `Peer ${peerId.substring(0, 4)}`, unsubscribe: null };
+            peerConnections.set(peerId, connection);
             updateParticipantsList();
 
             let peerOffer = peerDoc.data().offer;
@@ -469,20 +474,21 @@
             };
             
             const peerCandidates = collection(db, 'rooms', roomId, 'peers', peerId, 'peerCandidates');
-            onSnapshot(peerCandidates, (snapshot) => {
+            const unsubscribe = onSnapshot(peerCandidates, (snapshot) => {
                 snapshot.docChanges().forEach((change) => {
-                    const connection = peerConnections.get(peerId);
-                    if (change.type === 'added' && connection && connection.pc.connectionState !== 'closed') {
-                         connection.pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
+                    const currentConnection = peerConnections.get(peerId);
+                    if (change.type === 'added' && currentConnection && currentConnection.pc.connectionState !== 'closed') {
+                         currentConnection.pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
                     }
                 });
             });
+            connection.unsubscribe = unsubscribe; // Store the unsubscribe function
 
             pc.ondatachannel = (event) => {
-                const connection = peerConnections.get(peerId);
-                if (connection) {
-                    connection.dc = event.channel;
-                    setupDataChannel(peerId, connection);
+                const currentConnection = peerConnections.get(peerId);
+                if (currentConnection) {
+                    currentConnection.dc = event.channel;
+                    setupDataChannel(peerId, currentConnection);
                 }
             };
 
@@ -528,13 +534,16 @@
                 }
 
                 const peersCollection = collection(db, 'rooms', roomId, 'peers');
-                onSnapshot(peersCollection, (snapshot) => {
+                roomUnsubscribe = onSnapshot(peersCollection, (snapshot) => {
                     snapshot.docChanges().forEach((change) => {
                         if (change.type === 'added') handleNewPeer(change.doc.id, change.doc);
                         if (change.type === 'removed') {
                             const peerId = change.doc.id;
                             const connection = peerConnections.get(peerId);
-                            if (connection) connection.pc.close();
+                            if (connection) {
+                                if (connection.unsubscribe) connection.unsubscribe(); // Unsubscribe!
+                                connection.pc.close();
+                            }
                             peerConnections.delete(peerId);
                             updateParticipantsList();
                         }
@@ -553,7 +562,6 @@
                 }
                 privacyNotice.classList.remove('hidden');
 
-                window.addEventListener('beforeunload', () => deleteDoc(doc(db, 'rooms', roomId)));
             } catch (error) {
                 console.error("Error creating room:", error);
                 updateStatus("Error: Could not create a share link.", 'error');
@@ -604,8 +612,9 @@
         };
 
         const proceedWithJoin = async (roomId) => {
-             const pc = new RTCPeerConnection(servers);
-            peerConnections.set('host', { pc, dc: null, name: 'Host' });
+            const pc = new RTCPeerConnection(servers);
+            const connection = { pc, dc: null, name: 'Host', unsubscribe: null };
+            peerConnections.set('host', connection);
 
             pc.onicecandidate = async (event) => {
                 if (event.candidate) {
@@ -615,16 +624,16 @@
             };
             
             const hostCandidates = collection(db, 'rooms', roomId, 'peers', localId, 'hostCandidates');
-            onSnapshot(hostCandidates, (snapshot) => {
+            const unsubscribe = onSnapshot(hostCandidates, (snapshot) => {
                 snapshot.docChanges().forEach((change) => {
                     if (change.type === 'added' && pc.connectionState !== 'closed') {
                         pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
                     }
                 });
             });
+            connection.unsubscribe = unsubscribe; // Store the unsubscribe function
 
             const dc = pc.createDataChannel('file-transfer');
-            const connection = peerConnections.get('host');
             connection.dc = dc;
             setupDataChannel('host', connection);
 
@@ -690,6 +699,10 @@
             };
             connection.dc.onclose = () => {
                 console.log(`Data channel with ${id} closed.`);
+                const connectionToClose = peerConnections.get(id);
+                if (connectionToClose) {
+                    if (connectionToClose.unsubscribe) connectionToClose.unsubscribe(); // Unsubscribe!
+                }
                 peerConnections.delete(id);
                 updateParticipantsList();
                  if (roomMode === 'p2p' && isHost) {
@@ -801,10 +814,11 @@
             const progressContainerEl = document.getElementById(`queue-progress-container-${currentFileIndex}`);
             if(statusEl) statusEl.textContent = 'Sending...';
             if(progressContainerEl) progressContainerEl.classList.remove('hidden');
+            
             const file = filesToSend[currentFileIndex];
+            const fileMetadata = { name: file.name, size: file.size, type: file.type };
             const statusMessage = (targetPeerId === 'broadcast' || roomMode === 'group') ? 'Broadcasting' : 'Sending';
             updateStatus(`${statusMessage} ${currentFileIndex + 1}/${filesToSend.length}: ${file.name}`, 'progress');
-            fileMetadata = { name: file.name, size: file.size, type: file.type };
             sendToTarget(targetPeerId, JSON.stringify({ type: 'metadata', payload: fileMetadata }));
             
             let offset = 0;
@@ -860,10 +874,12 @@
                             if (isHost) broadcastToPeers(JSON.stringify(parsedData), senderId);
                             appendChatMessage(parsedData.payload, 'received', parsedData.sender);
                         } else if (parsedData.type === 'metadata') {
-                           fileMetadata = parsedData.payload;
-                           receiveBuffer = [];
-                           receivedSize = 0;
-                           updateStatus(`Receiving file: ${fileMetadata.name}`, 'progress');
+                           receivingStates.set(senderId, {
+                               metadata: parsedData.payload,
+                               buffer: [],
+                               size: 0
+                           });
+                           updateStatus(`Receiving file: ${parsedData.payload.name}`, 'progress');
                         } else if (parsedData.type === 'text-snippet') {
                             if (isHost) broadcastToPeers(JSON.stringify(parsedData), senderId);
                             displayReceivedText(parsedData.payload, parsedData.sender);
@@ -873,16 +889,20 @@
                 } catch(e) { /* Not a JSON control message */ }
             }
             
-            receiveBuffer.push(data);
-            receivedSize += (data instanceof ArrayBuffer) ? data.byteLength : data.size;
-            if (fileMetadata && receivedSize === fileMetadata.size) {
-                const receivedFile = new Blob(receiveBuffer, { type: fileMetadata.type });
+            const state = receivingStates.get(senderId);
+            if (!state) return; // Ignore chunk if we have no metadata for it
+
+            state.buffer.push(data);
+            state.size += (data instanceof ArrayBuffer) ? data.byteLength : data.size;
+
+            if (state.metadata && state.size === state.metadata.size) {
+                const receivedFile = new Blob(state.buffer, { type: state.metadata.type });
                 
                 const receivedItem = document.createElement('div');
                 receivedItem.className = 'w-full bg-gray-700 p-2 rounded-lg text-sm flex items-center justify-between';
                 
                 const fileInfo = document.createElement('div');
-                fileInfo.innerHTML = `<p class="font-semibold truncate">${fileMetadata.name}</p><p class="text-xs text-gray-400">${formatBytes(fileMetadata.size)}</p>`;
+                fileInfo.innerHTML = `<p class="font-semibold truncate">${state.metadata.name}</p><p class="text-xs text-gray-400">${formatBytes(state.metadata.size)}</p>`;
                 
                 const downloadButton = document.createElement('button');
                 downloadButton.textContent = 'Download';
@@ -890,7 +910,7 @@
                 downloadButton.onclick = () => {
                     const link = document.createElement('a');
                     link.href = URL.createObjectURL(receivedFile);
-                    link.download = fileMetadata.name;
+                    link.download = state.metadata.name;
                     document.body.appendChild(link);
                     link.click();
                     document.body.removeChild(link);
@@ -906,11 +926,10 @@
                 receivedFilesList.appendChild(receivedItem);
 
                 receivedFilesContainer.classList.remove('hidden');
-                updateStatus(`File "${fileMetadata.name}" received.`, 'connected');
+                updateStatus(`File "${state.metadata.name}" received.`, 'connected');
 
-                receiveBuffer = [];
-                receivedSize = 0;
-                fileMetadata = null;
+                // Clean up the state for this completed transfer
+                receivingStates.delete(senderId);
             }
         };
 
@@ -937,6 +956,7 @@
             }
             appendChatMessage(message, 'sent');
             chatInput.value = '';
+            chatInput.focus();
         };
 
         const sendTextSnippet = async () => {
@@ -983,6 +1003,7 @@
                 textArea.style.top = '-9999px';
                 textArea.style.left = '-9999px';
                 document.body.appendChild(textArea);
+                textArea.focus();
                 textArea.select();
                 try {
                     document.execCommand('copy');
@@ -1047,19 +1068,29 @@
                 try {
                     await navigator.share({ title: 'DirectDrop File Share', text: 'Join my secure file transfer session:', url: urlToShare });
                     copyBtn.textContent = 'Shared!';
+                    setTimeout(() => { copyBtn.textContent = 'Share'; }, 2000);
                 } catch (error) {
-                    if (error.name === 'NotAllowedError') { console.warn('Share API permission denied. Falling back to copy.'); } 
-                    else { console.error('Error sharing:', error); }
-                    copyToClipboard(urlToShare);
+                    if (error.name !== 'AbortError') { // Don't show error if user cancels share dialog
+                        console.warn('Share API failed, falling back to copy.', error);
+                        copyToClipboard();
+                    }
                 }
-            } else { copyToClipboard(urlToShare); }
+            } else {
+                copyToClipboard();
+            }
         };
 
-        const copyToClipboard = (text) => {
-             shareLinkInput.select();
-             document.execCommand('copy');
-             copyBtn.textContent = 'Copied!';
-             setTimeout(() => { copyBtn.textContent = navigator.share ? 'Share' : 'Copy'; }, 2000);
+        const copyToClipboard = () => {
+            shareLinkInput.select();
+            shareLinkInput.setSelectionRange(0, 99999); // For mobile devices
+            try {
+                document.execCommand('copy');
+                copyBtn.textContent = 'Copied!';
+            } catch (err) {
+                console.error('Failed to copy: ', err);
+                copyBtn.textContent = 'Copy Failed';
+            }
+            setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
         };
 
         const updateStatus = (text, state = 'waiting') => {
@@ -1121,6 +1152,54 @@
                  handleFileSelect({ target: { files: e.dataTransfer.files } });
                  e.dataTransfer.clearData();
             }
+        };
+        
+        const stopSharing = () => {
+            // Close all peer connections
+            for (const [peerId, connection] of peerConnections.entries()) {
+                if (connection.pc) {
+                    connection.pc.close();
+                }
+                if (connection.unsubscribe) {
+                    connection.unsubscribe();
+                }
+            }
+            peerConnections.clear();
+
+            // Host cleans up the room
+            if (isHost && roomId) {
+                if(roomUnsubscribe) roomUnsubscribe();
+                const roomRef = doc(db, 'rooms', roomId);
+                deleteDoc(roomRef).catch(err => console.error("Error deleting room:", err));
+            }
+
+            // Reset state
+            isHost = false;
+            roomId = null;
+            roomPassword = null;
+            filesToSend = [];
+            receivingStates.clear();
+
+            // Reset UI
+            shareScreen.classList.add('hidden');
+            startScreen.classList.remove('hidden');
+            participantsList.innerHTML = '';
+            sendingQueueList.innerHTML = '';
+            receivedFilesList.innerHTML = '';
+            receivedTextList.innerHTML = '';
+            chatLog.innerHTML = '';
+            participantsContainer.classList.add('hidden');
+            chatContainer.classList.add('hidden');
+            sharingModeContainer.classList.add('hidden');
+            sendingQueueContainer.classList.add('hidden');
+            receivedFilesContainer.classList.add('hidden');
+            receivedTextContainer.classList.add('hidden');
+            shareLinkInput.value = '';
+            qrCodeContainer.innerHTML = '';
+            roomPasswordInput.value = '';
+            
+            // Clean URL
+            window.history.pushState({}, '', window.location.pathname);
         };
         
         initialize();
