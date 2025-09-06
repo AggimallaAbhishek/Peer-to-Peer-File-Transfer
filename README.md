@@ -1,90 +1,100 @@
 **This is the live demo link to the website** -- https://p2pfile-transfer.netlify.app/
 
 
-DirectDrop – Secure P2P File Sharing 🔗✨
-DirectDrop is a fast, private, and serverless file sharing app that connects devices directly 🌍💫 — no central server, no storage risk. It works right from your browser and can be installed as a PWA app 📱💻.
+# DirectDrop – Secure P2P File Sharing 🔗✨
 
-Why DirectDrop? 🔒⚡
-No Servers, No Middlemen – Files transfer directly via WebRTC 🚀.
+DirectDrop is a fast, **privacy-focused, serverless file sharing app** that uses **WebRTC** to connect devices directly 🌍💫. No central server ever handles your files — only you and your peers.  
 
-End-to-End Encryption – Locked with AES-GCM 🔑.
+It’s lightweight, encrypted, and works directly from your browser. You can even install it as a **Progressive Web App (PWA)** 📱💻.
 
-Cross-Device Friendly – Use it on desktop, mobile, or as an installable app 📲.
+---
 
-Privacy First – Signaling data is cleared instantly 🗑️. Group rooms expire in 1 hour ⏳.
+## 🚀 Features
 
-Key Features 🌟
-Flexible Sharing Modes
+- **🔒 End-to-End Encryption (AES-GCM)**
+- **👥 1-to-1 Private Sharing** or **📡 Group Broadcasting**
+- **📂 Share Anything**
+  - Files, folders (auto-zipped), notes, links, code snippets
+- **⚡ Smooth & Simple**
+  - Real-time progress indicators ⏳  
+  - Drag & Drop file sharing 📤  
+  - Dark Mode UI 🌙  
+  - Built-in chat 💬
+- **🔗 Easy Connections**
+  - Instant session link  
+  - Share via QR code 📷
+- **🧹 Privacy-First Design**
+  - Rooms auto-delete after use (1-to-1 instantly, groups after 1 hour)
 
-👥 1-to-1 Sharing – Private transfers made simple.
+---
 
-📡 Group Broadcast – Share with multiple people at once.
+## ⚙️ How It Works
 
-Versatile Sharing
+1. 🏠 **Host starts a session** → A unique room link + QR code generated.  
+2. 👤 **Peers join** → Firestore handles initial signaling.  
+3. 🔗 **Direct peer-to-peer connection** via WebRTC is established.  
+4. 📦 **Transfer files & messages** directly and securely.  
+5. 🧹 **Auto-cleanup** → Signaling data removed for max privacy.  
 
-📂 Files & Folders (auto-zipped for convenience).
+---
 
-📝 Text notes, links, and code snippets.
+## 📖 Getting Started
 
-Simple & Seamless Connection
+### As Host
+1. Open DirectDrop.  
+2. Choose *1-to-1 Sharing* or *Broadcast to a Group*.  
+3. (Optional) Add a session password 🔐.  
+4. Share the unique **link** or **QR code**.  
+5. Start sharing files instantly 🎉.  
 
-🔗 Share a unique link or
+### As Peer
+1. Open the session link or scan the QR code 🔗📷.  
+2. Enter password if required 🔑.  
+3. Start receiving files in real-time ⚡⬇️.  
 
-📷 Scan a QR code to connect instantly.
+---
 
-Smooth User Experience
+## 🛠️ Tech Stack
 
-📤 Drag & drop file sharing.
+- **Frontend:** HTML5, CSS3, JavaScript (ES Modules)  
+- **UI Styling:** Tailwind CSS 🎨  
+- **P2P Engine:** WebRTC (RTCPeerConnection + RTCDataChannel) 🔗  
+- **Signaling:** Firebase Firestore ☁️  
+- **Compression:** JSZip 📦  
+- **Encryption:** Web Crypto API (AES-GCM) 🛡️  
+- **QR Codes:** qrcode.js 📷  
 
-⏳ Real-time progress indicators.
+---
 
-💬 Built-in chat during transfers.
+## 🖼️ Preview (Coming Soon)
 
-🌙 Sleek dark mode design.
+*(Screenshot or demo GIF of the app UI here)*
 
-How It Works ⚙️
-🏠 Host starts a session → A unique link + QR code is generated.
+---
 
-👤 Peers join using the link/QR → Initial signaling via Firestore.
+## 📌 Roadmap
 
-🔗 Direct connection established → Encrypted WebRTC channel.
+- [ ] File preview before sending 📑  
+- [ ] Multi-device sync option 🔄  
+- [ ] Offline-ready transfers 🔌  
 
-📦 Transfer files instantly → Fast & secure.
+---
 
-🧹 Auto cleanup → Data deleted right after use.
+## 👨‍💻 Contributing
 
-Getting Started 🚀
-Host:
+Contributions are welcome!  
+1. Fork the repo 🍴  
+2. Create your feature branch 🌱  
+3. Commit changes ✅  
+4. Push and create a Pull Request 🔀  
 
-Open DirectDrop → Choose 1-to-1 or Group Broadcast.
+---
 
-🔐 (Optional) Add a password for group sessions.
+## 📜 License
 
-Share the link/QR code.
+This project is licensed under the **MIT License**.  
+See [LICENSE](LICENSE) for more details.
 
-Start sharing files, folders, or texts instantly 🎉.
+---
 
-Peer:
-
-Click link or scan QR 🔗.
-
-(Optional) Enter session password 🔑.
-
-Receive files in real-time ⚡ and download instantly ⬇️.
-
-Tech Stack 🛠️
-Frontend: HTML5, CSS3, JavaScript (ES Modules)
-
-UI Styling: Tailwind CSS 🎨
-
-P2P Engine: WebRTC 🔗
-
-Signaling Server: Firebase Firestore ☁️
-
-File Compression: JSZip 📦
-
-Encryption: Web Crypto API (AES-GCM) 🛡️
-
-QR Code Generator: qrcode.js 📷
-
-✨ With DirectDrop, sharing is as simple as Click ➝ Connect ➝ Send 🚀🔗🎉
+✨ With **DirectDrop**, sharing is as simple as **Click ➝ Connect ➝ Send** 🚀🔗🎉
