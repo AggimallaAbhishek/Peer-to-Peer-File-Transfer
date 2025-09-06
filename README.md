@@ -1,99 +1,93 @@
 **This is the live demo link to the website** -- https://p2pfile-transfer.netlify.app/
 
 
-DirectDrop: Secure P2P File Sharing
-DirectDrop is a simple, secure, and serverless way to transfer files directly between two devices using only a web browser. Built with WebRTC, it establishes a direct peer-to-peer connection, ensuring that your files are never uploaded to or stored on a central server.
+DirectDrop - Secure P2P File Sharing
+DirectDrop is a secure, decentralized, and privacy-focused peer-to-peer (P2P) file sharing application built entirely with web technologies. It uses WebRTC for direct data transfer between browsers, eliminating the need for a central server to handle your files. A lightweight signaling server using Firebase Firestore is used only for the initial connection setup.
 
-✨ Features
-🔒 Secure & Private: Files are transferred directly between peers, encrypted in transit using DTLS (a standard part of WebRTC). No middleman server sees your data.
+Features
+Serverless File Transfers: Files are sent directly between peers (browsers) using WebRTC, ensuring privacy and speed.
 
-🌐 Serverless Transfer: Files are never stored in the cloud. We only use a signaling server (Firebase) to help the two browsers find each other.
+Multiple Sharing Modes:
 
-🔗 Multiple Connection Methods: Share a session with a simple link, a short Room ID, or a scannable QR code.
+1-to-1 Sharing: Create a private room for secure transfer with a single person.
 
-📁 Multi-File Support: Send multiple files or entire folders at once.
+Group Broadcasting: Host a room and broadcast files, text, and messages to multiple participants simultaneously.
 
-💬 Integrated Chat: A simple text chat is included for communication during the transfer.
+End-to-End Encryption: Secure your group sessions with a password. All data (files, text, and chat) is encrypted end-to-end using the Web Crypto API (AES-GCM).
 
-📱 PWA Ready: Installable as a Progressive Web App for an app-like experience and offline access.
+Versatile Sharing:
 
-🖱️ Drag & Drop: Easily drag files onto the application to start a transfer.
+Files & Folders: Share individual files or entire folders.
 
-🚀 Lightweight: Built with vanilla JavaScript, HTML, and Tailwind CSS. No heavy frameworks are needed.
+Folder Zipping: Automatically compress and send folders as a single .zip file.
 
-🛠️ How It Works
-DirectDrop leverages the power of WebRTC to create a direct data channel between two browsers. The process is as follows:
+Text Snippets: Quickly share code snippets, notes, or links.
 
-Signaling: When a user clicks "Create Share Link," the app generates a WebRTC "offer" and a unique Room ID. This offer is stored in a Firebase Firestore document.
+Easy Connection:
 
-Connection: The second user opens the shared link or enters the Room ID. Their browser reads the offer from Firestore, creates an "answer," and updates the document.
+Shareable Link: Instantly generate a unique link for your session.
 
-ICE Candidates: Both browsers exchange network information (ICE candidates) via the Firestore document to find the best path to connect to each other.
+QR Code: A scannable QR code is created for easily connecting mobile devices.
 
-Direct Connection: Once a path is found, a secure, direct P2P connection is established. The Firestore signaling server is no longer needed for the file transfer itself.
+Real-time Communication: An integrated chat allows participants to communicate during the session.
 
-File Transfer: Files are split into chunks (currently 256 KB) and sent directly over the encrypted WebRTC data channel.
+Privacy-First Design:
 
-Important: Firebase is used only for the initial handshake (signaling). The files themselves are transferred directly between the two users and are never sent to or stored on any server.
+P2P Session Cleanup: The signaling room for 1-to-1 sessions is deleted from the server the moment a connection is established.
 
-🚀 Getting Started
-Using the Live App
-Sender:
+Group Session Expiry: Group rooms and their metadata are automatically deleted after 1 hour.
 
-Open the DirectDrop web application.
+Progressive Web App (PWA): Installable on both mobile and desktop platforms for a native app-like experience.
 
-Click - https://p2pfile-transfer.netlify.app/
+Modern UI: A clean, responsive, and user-friendly interface with drag-and-drop support, real-time progress indicators, and a dark mode theme.
 
-Send the generated URL, Room ID, or QR code to the other person.
+How It Works
+The application leverages WebRTC to create a direct peer-to-peer connection. However, to initiate this connection, peers need a way to find and communicate with each other. This process is called signaling.
 
-Receiver:
+Initiation (Host): The user who creates a room becomes the "host." The application generates a unique roomId and stores it in a Firebase Firestore document.
 
-Open the URL from the sender (or go to the site and enter the Room ID).
+Signaling: The host generates a WebRTC "offer" and a share link (.../?id=<roomId>). When a peer joins using this link, they generate a WebRTC "answer." These offers and answers, along with ICE candidates (which describe how to connect), are exchanged via the Firestore document.
 
-Once the status shows "Connected to peer!", the sender can select files to begin the transfer.
+Direct Connection: Once the signaling is complete, a direct, secure RTCPeerConnection is established between the users.
 
-Local Development
-To run this project on your local machine:
+Data Transfer: All files, text, and chat messages are now sent directly through this encrypted P2P channel, bypassing any central server.
 
-Clone the repository:
+Cleanup: For maximum privacy, the Firestore document acting as the signaling channel is automatically deleted immediately after a 1-to-1 connection is made or after 1 hour for group rooms.
 
-git clone [https://github.com/your-username/directdrop.git](https://github.com/your-username/directdrop.git)
-cd directdrop
+How to Use
+To Share (as Host):
+Open the DirectDrop application.
 
-Set up Firebase:
+Choose "Share with One Person" or "Broadcast to a Group".
 
-Go to the Firebase Console and create a new project.
+(Optional) For group sharing, enter a password to encrypt the session.
 
-Create a new Firestore Database.
+Share the generated link or have the other person scan the QR code.
 
-In your project settings, create a new Web App and copy the firebaseConfig object.
+Wait for the peer(s) to connect.
 
-Update Configuration:
+Once connected, select files/folders, type text, or chat to share.
 
-Open the index.html file.
+To Receive (as Peer):
+Open the share link provided by the host.
 
-Find the firebaseConfig constant.
+(Optional) If the room is password-protected, you will be prompted to enter the password.
 
-Replace the existing atob(...) encoded string with your own firebaseConfig object, encoded in base64. You can use an online tool to encode your configuration JSON.
+Wait to be connected to the host.
 
-Run a local server:
+Once connected, you will be able to receive files, text, and chat messages. Download buttons will appear for any received files.
 
-Since this project uses ES Modules, you need to serve it from a local web server.
+Technology Stack
+Frontend: HTML5, CSS3, JavaScript (ES Modules)
 
-If you have Node.js, you can use the serve package:
+Styling: Tailwind CSS
 
-npx serve
+P2P Communication: WebRTC (RTCPeerConnection, RTCDataChannel)
 
-Open your browser to the URL provided (e.g., http://localhost:3000).
+Signaling: Google Firebase Firestore
 
-📁 File Structure
-index.html: The main file containing all the application logic, HTML structure, and styling.
+QR Code Generation: qrcode.js
 
-manifest.json: The Progressive Web App manifest file, allowing the app to be "installed."
+File Compression: jszip.min.js
 
-sw.js: The Service Worker file, which handles caching for offline access.
-
-README.md: You are here!
-
-📜 License
-This project is licensed under the MIT License. See the LICENSE file for details.
+Encryption: Web Crypto API (AES-GCM)
