@@ -1,0 +1,87 @@
+body {
+    font-family: 'Inter', sans-serif;
+}
+
+.lds-ring {
+    display: inline-block;
+    position: relative;
+    width: 20px;
+    height: 20px;
+    margin-right: 8px;
+}
+
+.lds-ring div {
+    box-sizing: border-box;
+    display: block;
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    margin: 2px;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    animation: lds-ring 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+    border-color: #fff transparent transparent transparent;
+}
+
+.lds-ring div:nth-child(1) { animation-delay: -0.45s; }
+.lds-ring div:nth-child(2) { animation-delay: -0.3s; }
+.lds-ring div:nth-child(3) { animation-delay: -0.15s; }
+
+@keyframes lds-ring {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+html, body {
+    height: 100%;
+}
+
+.app-container {
+     min-height: 100%;
+}
+
+.drag-over {
+    border: 2px dashed #818cf8;
+    transform: scale(1.02);
+}
+
+/* --- Custom Scrollbar Styles --- */
+#received-files-list::-webkit-scrollbar,
+#sending-queue-list::-webkit-scrollbar,
+#participants-list::-webkit-scrollbar,
+#received-text-list::-webkit-scrollbar,
+#chat-log::-webkit-scrollbar {
+    width: 8px;
+}
+
+#received-files-list::-webkit-scrollbar-track,
+#sending-queue-list::-webkit-scrollbar-track,
+#participants-list::-webkit-scrollbar-track,
+#received-text-list::-webkit-scrollbar-track,
+#chat-log::-webkit-scrollbar-track {
+    background: #111827; /* bg-gray-900 */
+    border-radius: 10px;
+}
+
+#received-files-list::-webkit-scrollbar-thumb,
+#sending-queue-list::-webkit-scrollbar-thumb,
+#participants-list::-webkit-scrollbar-thumb,
+#received-text-list::-webkit-scrollbar-thumb,
+#chat-log::-webkit-scrollbar-thumb {
+    background: #4f46e5; /* bg-indigo-600 */
+    border-radius: 10px;
+}
+
+#received-files-list::-webkit-scrollbar-thumb:hover,
+#sending-queue-list::-webkit-scrollbar-thumb:hover,
+#participants-list::-webkit-scrollbar-thumb:hover,
+#received-text-list::-webkit-scrollbar-thumb:hover,
+#chat-log::-webkit-scrollbar-thumb:hover {
+    background: #4338ca; /* bg-indigo-700 */
+}
+
+/* For Firefox */
+#received-files-list, #sending-queue-list, #participants-list, #received-text-list, #chat-log {
+  scrollbar-width: thin;
+  scrollbar-color: #4f46e5 #111827;
+}
