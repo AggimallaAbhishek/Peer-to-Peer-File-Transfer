@@ -58,6 +58,7 @@
                             Copy
                         </button>
                     </div>
+                    <p id="room-id-text" class="mt-2 text-xs text-gray-400 break-all hidden"></p>
                 </div>
 
                 <div id="qr-code-area" class="text-center">
@@ -70,7 +71,7 @@
                 <div id="status-container" class="text-center p-4 rounded-lg bg-gray-700 transition-colors duration-300">
                     <p id="status-text" class="text-gray-300 flex items-center justify-center">
                         <span id="status-spinner" class="hidden"><div class="lds-ring"><div></div><div></div><div></div><div></div></div></span>
-                        Waiting for peer(s) to connect...
+                        <span id="status-message" class="ml-2">Waiting for peer(s) to connect...</span>
                     </p>
                 </div>
                 
@@ -184,6 +185,6 @@
 
     <script src="config.js"></script>
     <!-- Local Script -->
-    <script type="module" src="script.js?v=20260304"></script>
+    <script type="module" src="script.js?v=20260304b"></script>
 </body>
 </html>

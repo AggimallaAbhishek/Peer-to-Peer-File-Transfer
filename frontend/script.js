@@ -107,6 +107,7 @@ const qrCodeContainer = document.getElementById('qr-code-container');
 const statusContainer = document.getElementById('status-container');
 const statusText = document.getElementById('status-text');
 const statusSpinner = document.getElementById('status-spinner');
+const statusMessage = document.getElementById('status-message');
 const participantsContainer = document.getElementById('participants-container');
 const participantsList = document.getElementById('participants-list');
 const chatContainer = document.getElementById('chat-container');
@@ -146,6 +147,7 @@ const passwordPromptSubmit = document.getElementById('password-prompt-submit');
 const privacyNotice = document.getElementById('privacy-notice');
 const installBtn = document.getElementById('install-btn');
 const stopShareBtn = document.getElementById('stop-share-btn');
+const roomIdText = document.getElementById('room-id-text');
 
 // --- Global State ---
 let peerConnections = new Map();
@@ -183,6 +185,11 @@ const countActivePeerConnections = () => Array.from(peerConnections.values()).fi
     const state = connection?.pc?.connectionState;
     return state === 'new' || state === 'connecting' || state === 'connected';
 }).length;
+
+const createId = () => {
+    if (crypto?.randomUUID) return crypto.randomUUID().replace(/-/g, '');
+    return `${Date.now()}${Math.random().toString(16).slice(2, 10)}`;
+};
 
 const cleanupConnection = (id, { closePeerConnection = false } = {}) => {
     const existing = peerConnections.get(id);
@@ -246,11 +253,14 @@ async function decryptData(encryptedBase64, password) {
 // --- Core Logic ---
 const initialize = async () => {
     await loadRuntimeConfig();
-    localId = crypto.randomUUID();
+    localId = createId();
     const urlParams = new URLSearchParams(window.location.search);
-    roomId = urlParams.get('id');
+    const rawRoomId = urlParams.get('id');
+    roomId = rawRoomId ? decodeURIComponent(rawRoomId).trim() : null;
     if (roomId) {
         joinRoom(roomId);
+    } else if (rawRoomId === '') {
+        updateStatus('Invalid share link. Ask host to copy the full link.', 'error');
     }
     createP2PBtn.addEventListener('click', () => { roomMode = 'p2p'; createRoom(); });
     createGroupBtn.addEventListener('click', () => { roomMode = 'group'; createRoom(); });
@@ -384,8 +394,8 @@ const createRoom = async () => {
     scheduleConnectionHint();
     
     try {
-        const roomRef = doc(collection(db, 'rooms'));
-        roomId = roomRef.id;
+        roomId = createId();
+        const roomRef = doc(db, 'rooms', roomId);
 
         await setDoc(roomRef, { mode: roomMode, hasPassword: !!roomPassword, createdAt: new Date().toISOString() });
         
@@ -413,8 +423,10 @@ const createRoom = async () => {
             updateStatus('Connection error: room listener failed.', 'error');
         });
         
-        const shareLink = `${window.location.origin}${window.location.pathname}?id=${roomId}`;
+        const shareLink = `${window.location.origin}${window.location.pathname}?id=${encodeURIComponent(roomId)}`;
         shareLinkInput.value = shareLink;
+        roomIdText.textContent = `Room ID: ${roomId}`;
+        roomIdText.classList.remove('hidden');
         qrCodeContainer.innerHTML = '';
         new QRCode(qrCodeContainer, { text: shareLink, width: 144, height: 144, colorDark : "#000000", colorLight : "#ffffff", correctLevel : QRCode.CorrectLevel.H });
         
@@ -433,6 +445,10 @@ const createRoom = async () => {
 };
 
 const joinRoom = async (roomId) => {
+    if (!roomId || roomId.length < 8) {
+        updateStatus('Invalid room link. Ask host to share the exact link or QR.', 'error');
+        return;
+    }
     isHost = false;
     startScreen.classList.add('hidden');
     shareScreen.classList.remove('hidden');
@@ -1022,9 +1038,11 @@ const updateStatus = (text, state = 'waiting') => {
         case 'error': statusContainer.classList.add('bg-red-700'); statusSpinner.classList.add('hidden'); break;
         case 'waiting': default: statusContainer.classList.add('bg-gray-700'); statusSpinner.classList.remove('hidden'); break;
     }
-    const textNode = Array.from(statusText.childNodes).find(node => node.nodeType === Node.TEXT_NODE);
-    if (textNode) { textNode.textContent = ` ${text}`; } 
-    else { statusText.appendChild(document.createTextNode(` ${text}`)); }
+    if (statusMessage) {
+        statusMessage.textContent = text;
+    } else {
+        statusText.textContent = text;
+    }
 };
 
 const updateProgressBar = (value, max, index) => {
@@ -1111,6 +1129,8 @@ const stopSharing = () => {
     receivedFilesContainer.classList.add('hidden');
     receivedTextContainer.classList.add('hidden');
     shareLinkInput.value = '';
+    roomIdText.textContent = '';
+    roomIdText.classList.add('hidden');
     qrCodeContainer.innerHTML = '';
     roomPasswordInput.value = '';
     
