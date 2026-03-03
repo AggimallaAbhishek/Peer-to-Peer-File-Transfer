@@ -36,6 +36,11 @@ const DEFAULT_ICE_SERVERS = [
         username: "openrelayproject",
         credential: "openrelayproject",
     },
+    {
+        urls: "turns:openrelay.metered.ca:443?transport=tcp",
+        username: "openrelayproject",
+        credential: "openrelayproject",
+    },
 ];
 const servers = { iceServers: [...DEFAULT_ICE_SERVERS] };
 const CHUNK_SIZE = 256 * 1024;
@@ -64,7 +69,18 @@ const loadRuntimeConfig = async () => {
 
         const runtimeConfig = await response.json();
         if (Array.isArray(runtimeConfig.iceServers) && runtimeConfig.iceServers.length > 0) {
-            servers.iceServers = runtimeConfig.iceServers;
+            const mergedIceServers = [...runtimeConfig.iceServers, ...DEFAULT_ICE_SERVERS];
+            const seen = new Set();
+            servers.iceServers = mergedIceServers.filter((server) => {
+                const key = JSON.stringify({
+                    urls: server.urls,
+                    username: server.username || '',
+                    credential: server.credential || ''
+                });
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
         }
     } catch (error) {
         console.warn('Backend config unavailable, using default ICE servers.', error);
