@@ -17,6 +17,10 @@ const db = initializeFirestore(app, {
 const DEFAULT_ICE_SERVERS = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
     {
         urls: 'turn:openrelay.metered.ca:80',
         username: 'openrelayproject',
@@ -69,7 +73,8 @@ const loadRuntimeConfig = async () => {
 
 const getRtcConfiguration = () => ({
     iceServers: [...servers.iceServers],
-    iceCandidatePoolSize: 10
+    iceCandidatePoolSize: 10,
+    iceTransportPolicy: 'all'
 });
 
 // --- DOM Elements ---
@@ -156,6 +161,39 @@ const clearConnectionHint = () => {
         clearTimeout(connectionHintTimer);
         connectionHintTimer = null;
     }
+};
+
+const countActivePeerConnections = () => Array.from(peerConnections.values()).filter((connection) => {
+    const state = connection?.pc?.connectionState;
+    return state === 'new' || state === 'connecting' || state === 'connected';
+}).length;
+
+const cleanupConnection = (id, { closePeerConnection = false } = {}) => {
+    const existing = peerConnections.get(id);
+    if (!existing) return;
+
+    if (existing.cleanupTimer) {
+        clearTimeout(existing.cleanupTimer);
+        existing.cleanupTimer = null;
+    }
+
+    if (existing.unsubscribe) {
+        existing.unsubscribe();
+        existing.unsubscribe = null;
+    }
+
+    if (closePeerConnection && existing.pc && existing.pc.connectionState !== 'closed') {
+        existing.pc.close();
+    }
+
+    if (existing.ownsPeerDoc && existing.peerDocRef) {
+        deleteDoc(existing.peerDocRef).catch((error) => {
+            console.warn('Failed to clean up peer signaling document:', error);
+        });
+    }
+
+    peerConnections.delete(id);
+    updateParticipantsList();
 };
 
 // --- Crypto Helpers ---
@@ -248,11 +286,11 @@ const initialize = async () => {
 
 const handleNewPeer = async (peerId, peerDoc) => {
     if (peerConnections.has(peerId) || peerId === localId) return;
-    if (roomMode === 'p2p' && peerConnections.size >= 1) { return; }
+    if (roomMode === 'p2p' && countActivePeerConnections() >= 1) { return; }
 
     console.log(`New peer detected: ${peerId}`);
     const pc = new RTCPeerConnection(getRtcConfiguration());
-    const connection = { pc, dc: null, name: `Peer ${peerId.substring(0, 4)}`, unsubscribe: null };
+    const connection = { pc, dc: null, name: `Peer ${peerId.substring(0, 4)}`, unsubscribe: null, cleanupTimer: null };
     peerConnections.set(peerId, connection);
     updateParticipantsList();
 
@@ -262,8 +300,7 @@ const handleNewPeer = async (peerId, peerDoc) => {
             peerOffer = await decryptData(peerOffer, roomPassword);
         } catch (e) {
             console.error("Failed to decrypt offer from peer - likely wrong password.");
-            peerConnections.delete(peerId);
-            updateParticipantsList();
+            cleanupConnection(peerId, { closePeerConnection: true });
             return;
         }
     }
@@ -346,19 +383,13 @@ const createRoom = async () => {
         const peersCollection = collection(db, 'rooms', roomId, 'peers');
         roomUnsubscribe = onSnapshot(peersCollection, (snapshot) => {
             snapshot.docChanges().forEach((change) => {
-                if (change.type === 'added') {
+                if (change.type === 'added' || change.type === 'modified') {
                     handleNewPeer(change.doc.id, change.doc)
                         .catch((error) => console.error('Failed to handle new peer:', error));
                 }
                 if (change.type === 'removed') {
                     const peerId = change.doc.id;
-                    const connection = peerConnections.get(peerId);
-                    if (connection) {
-                        if (connection.unsubscribe) connection.unsubscribe(); // Unsubscribe!
-                        connection.pc.close();
-                    }
-                    peerConnections.delete(peerId);
-                    updateParticipantsList();
+                    cleanupConnection(peerId, { closePeerConnection: true });
                 }
             });
         }, (error) => {
@@ -438,7 +469,7 @@ const joinRoom = async (roomId) => {
 
 const proceedWithJoin = async (roomId) => {
     const pc = new RTCPeerConnection(getRtcConfiguration());
-    const connection = { pc, dc: null, name: 'Host', unsubscribe: null };
+    const connection = { pc, dc: null, name: 'Host', unsubscribe: null, cleanupTimer: null };
     peerConnections.set('host', connection);
 
     pc.onicecandidate = async (event) => {
@@ -473,6 +504,8 @@ const proceedWithJoin = async (roomId) => {
     await pc.setLocalDescription(offer);
 
     const peerRef = doc(db, 'rooms', roomId, 'peers', localId);
+    connection.peerDocRef = peerRef;
+    connection.ownsPeerDoc = true;
     let offerToSend = { sdp: offer.sdp, type: offer.type };
     if (roomPassword) {
         offerToSend = await encryptData(offerToSend, roomPassword);
@@ -495,7 +528,7 @@ const proceedWithJoin = async (roomId) => {
                 passwordErrorText.classList.remove('hidden');
                 passwordPromptContainer.classList.remove('hidden');
                 pc.close();
-                peerConnections.delete('host');
+                cleanupConnection('host');
             }
         }
     }, (error) => {
@@ -508,12 +541,33 @@ const proceedWithJoin = async (roomId) => {
 
 const setupDataChannel = (id, connection) => {
     connection.pc.onconnectionstatechange = () => {
-        console.log(`Connection state with ${id} changed to: ${connection.pc.connectionState}`);
-        if (connection.pc.connectionState === 'connected' && !isHost) {
+        const state = connection.pc.connectionState;
+        console.log(`Connection state with ${id} changed to: ${state}`);
+
+        if (state === 'connected') {
+            if (connection.cleanupTimer) {
+                clearTimeout(connection.cleanupTimer);
+                connection.cleanupTimer = null;
+            }
+        }
+
+        if (state === 'connected' && !isHost) {
             updateStatus(`Connected to ${roomMode === 'p2p' ? 'peer' : 'host'}!`, 'connected');
         }
-        if (connection.pc.connectionState === 'failed') {
+        if (state === 'failed' || state === 'closed') {
+            clearConnectionHint();
             updateStatus('Connection failed. Refresh both devices and try again.', 'error');
+            cleanupConnection(id);
+        }
+        if (state === 'disconnected') {
+            if (connection.cleanupTimer) clearTimeout(connection.cleanupTimer);
+            connection.cleanupTimer = setTimeout(() => {
+                const current = peerConnections.get(id);
+                if (current && current.pc.connectionState === 'disconnected') {
+                    console.warn(`Cleaning up stalled connection: ${id}`);
+                    cleanupConnection(id, { closePeerConnection: true });
+                }
+            }, 10000);
         }
         updateParticipantsList();
     };
@@ -525,7 +579,9 @@ const setupDataChannel = (id, connection) => {
             updateStatus('Establishing secure peer connection...', 'progress');
         }
         if (iceState === 'failed') {
+            clearConnectionHint();
             updateStatus('Could not establish network route between devices.', 'error');
+            cleanupConnection(id, { closePeerConnection: true });
         }
     };
 
@@ -553,12 +609,7 @@ const setupDataChannel = (id, connection) => {
     };
     connection.dc.onclose = () => {
         console.log(`Data channel with ${id} closed.`);
-        const connectionToClose = peerConnections.get(id);
-        if (connectionToClose) {
-            if (connectionToClose.unsubscribe) connectionToClose.unsubscribe(); // Unsubscribe!
-        }
-        peerConnections.delete(id);
-        updateParticipantsList();
+        cleanupConnection(id);
          if (roomMode === 'p2p' && isHost) {
             qrCodeArea.classList.remove('hidden');
         }
@@ -1011,15 +1062,9 @@ const handleDrop = (e) => {
 const stopSharing = () => {
     clearConnectionHint();
     // Close all peer connections
-    for (const [peerId, connection] of peerConnections.entries()) {
-        if (connection.pc) {
-            connection.pc.close();
-        }
-        if (connection.unsubscribe) {
-            connection.unsubscribe();
-        }
+    for (const [peerId] of peerConnections.entries()) {
+        cleanupConnection(peerId, { closePeerConnection: true });
     }
-    peerConnections.clear();
 
     // Host cleans up the room
     if (isHost && roomId) {
