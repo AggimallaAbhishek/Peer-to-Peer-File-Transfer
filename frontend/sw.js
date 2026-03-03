@@ -1,4 +1,4 @@
-const CACHE_NAME = 'directdrop-v2';
+const CACHE_NAME = 'directdrop-v3';
 const URLS_TO_CACHE = [
   './',
   './index.html',
@@ -34,6 +34,27 @@ self.addEventListener('fetch', (event) => {
   const requestUrl = new URL(event.request.url);
   if (requestUrl.pathname.endsWith('/config.js')) {
     event.respondWith(fetch(event.request));
+    return;
+  }
+
+  const isSameOrigin = requestUrl.origin === self.location.origin;
+  const isAppShellAsset = isSameOrigin && (
+    event.request.destination === 'document' ||
+    event.request.destination === 'script' ||
+    event.request.destination === 'style' ||
+    event.request.destination === 'manifest'
+  );
+
+  if (isAppShellAsset) {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          const responseClone = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
+          return networkResponse;
+        })
+        .catch(() => caches.match(event.request))
+    );
     return;
   }
 

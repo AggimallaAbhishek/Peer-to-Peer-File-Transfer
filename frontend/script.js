@@ -3,11 +3,15 @@ const firebaseConfig = JSON.parse(atob("eyJhcGlLZXkiOiJBSXphU3lBdTFLZUhVV2ExQTd6
 
 // Import Firebase modules
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, addDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { initializeFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, addDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+const db = initializeFirestore(app, {
+    // Improves reliability on networks where Firestore's default WebChannel transport is blocked.
+    experimentalAutoDetectLongPolling: true,
+    useFetchStreams: false
+});
 
 // --- WebRTC Configuration ---
 const DEFAULT_ICE_SERVERS = [
@@ -62,6 +66,11 @@ const loadRuntimeConfig = async () => {
         console.warn('Backend config unavailable, using default ICE servers.', error);
     }
 };
+
+const getRtcConfiguration = () => ({
+    iceServers: [...servers.iceServers],
+    iceCandidatePoolSize: 10
+});
 
 // --- DOM Elements ---
 const dropZone = document.getElementById('drop-zone');
@@ -129,6 +138,25 @@ let roomMode = 'p2p';
 let roomPassword = null;
 let deferredInstallPrompt = null;
 let roomUnsubscribe = null;
+let connectionHintTimer = null;
+
+const scheduleConnectionHint = () => {
+    if (connectionHintTimer) clearTimeout(connectionHintTimer);
+    connectionHintTimer = setTimeout(() => {
+        const hasConnectedPeer = Array.from(peerConnections.values())
+            .some((conn) => conn.pc.connectionState === 'connected');
+        if (!hasConnectedPeer) {
+            updateStatus('Still connecting... open the exact shared link and disable VPN/ad blocker if needed.', 'progress');
+        }
+    }, 25000);
+};
+
+const clearConnectionHint = () => {
+    if (connectionHintTimer) {
+        clearTimeout(connectionHintTimer);
+        connectionHintTimer = null;
+    }
+};
 
 // --- Crypto Helpers ---
 async function deriveKey(password, salt) {
@@ -223,7 +251,7 @@ const handleNewPeer = async (peerId, peerDoc) => {
     if (roomMode === 'p2p' && peerConnections.size >= 1) { return; }
 
     console.log(`New peer detected: ${peerId}`);
-    const pc = new RTCPeerConnection(servers);
+    const pc = new RTCPeerConnection(getRtcConfiguration());
     const connection = { pc, dc: null, name: `Peer ${peerId.substring(0, 4)}`, unsubscribe: null };
     peerConnections.set(peerId, connection);
     updateParticipantsList();
@@ -241,9 +269,12 @@ const handleNewPeer = async (peerId, peerDoc) => {
     }
     
     pc.onicecandidate = async (event) => {
-        if (event.candidate) {
+        if (!event.candidate) return;
+        try {
             const candidateCollection = collection(db, 'rooms', roomId, 'peers', peerId, 'hostCandidates');
             await addDoc(candidateCollection, event.candidate.toJSON());
+        } catch (error) {
+            console.error('Failed to publish host ICE candidate:', error);
         }
     };
     
@@ -252,9 +283,13 @@ const handleNewPeer = async (peerId, peerDoc) => {
         snapshot.docChanges().forEach((change) => {
             const currentConnection = peerConnections.get(peerId);
             if (change.type === 'added' && currentConnection && currentConnection.pc.connectionState !== 'closed') {
-                 currentConnection.pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
+                currentConnection.pc.addIceCandidate(new RTCIceCandidate(change.doc.data()))
+                    .catch((error) => console.error('Failed to add peer ICE candidate:', error));
             }
         });
+    }, (error) => {
+        console.error('Peer candidate listener error:', error);
+        updateStatus('Connection error: signaling listener failed.', 'error');
     });
     connection.unsubscribe = unsubscribe; // Store the unsubscribe function
 
@@ -293,6 +328,7 @@ const createRoom = async () => {
     if (roomMode === 'group') participantsContainer.classList.remove('hidden');
     updateParticipantsList();
     updateStatus('Waiting for peer(s) to connect...', 'waiting');
+    scheduleConnectionHint();
     
     try {
         const roomRef = doc(collection(db, 'rooms'));
@@ -310,7 +346,10 @@ const createRoom = async () => {
         const peersCollection = collection(db, 'rooms', roomId, 'peers');
         roomUnsubscribe = onSnapshot(peersCollection, (snapshot) => {
             snapshot.docChanges().forEach((change) => {
-                if (change.type === 'added') handleNewPeer(change.doc.id, change.doc);
+                if (change.type === 'added') {
+                    handleNewPeer(change.doc.id, change.doc)
+                        .catch((error) => console.error('Failed to handle new peer:', error));
+                }
                 if (change.type === 'removed') {
                     const peerId = change.doc.id;
                     const connection = peerConnections.get(peerId);
@@ -322,6 +361,9 @@ const createRoom = async () => {
                     updateParticipantsList();
                 }
             });
+        }, (error) => {
+            console.error('Room peer listener error:', error);
+            updateStatus('Connection error: room listener failed.', 'error');
         });
         
         const shareLink = `${window.location.origin}${window.location.pathname}?id=${roomId}`;
@@ -338,6 +380,7 @@ const createRoom = async () => {
 
     } catch (error) {
         console.error("Error creating room:", error);
+        clearConnectionHint();
         updateStatus("Error: Could not create a share link.", 'error');
     }
 };
@@ -349,6 +392,7 @@ const joinRoom = async (roomId) => {
     qrCodeArea.classList.add('hidden');
     sharingModeContainer.classList.add('hidden');
     updateStatus('Connecting...', 'progress');
+    scheduleConnectionHint();
     try {
         const roomRef = doc(db, 'rooms', roomId);
         const roomSnap = await getDoc(roomRef);
@@ -370,30 +414,40 @@ const joinRoom = async (roomId) => {
         if (roomSnap.data().hasPassword) {
             passwordPromptContainer.classList.remove('hidden');
             passwordPromptCancel.onclick = () => window.location.href = window.location.pathname;
-            passwordPromptSubmit.onclick = () => {
+            passwordPromptSubmit.onclick = async () => {
                 roomPassword = passwordPromptInput.value;
                 passwordErrorText.classList.add('hidden');
                 passwordPromptContainer.classList.add('hidden');
-                proceedWithJoin(roomId);
+                try {
+                    await proceedWithJoin(roomId);
+                } catch (error) {
+                    console.error("Error joining password-protected room:", error);
+                    updateStatus("Error: Could not connect to host. Please try again.", 'error');
+                    passwordPromptContainer.classList.remove('hidden');
+                }
             };
         } else {
-            proceedWithJoin(roomId);
+            await proceedWithJoin(roomId);
         }
     } catch (error) {
         console.error("Error joining room:", error);
+        clearConnectionHint();
         updateStatus("Error: Could not join session.", 'error');
     }
 };
 
 const proceedWithJoin = async (roomId) => {
-    const pc = new RTCPeerConnection(servers);
+    const pc = new RTCPeerConnection(getRtcConfiguration());
     const connection = { pc, dc: null, name: 'Host', unsubscribe: null };
     peerConnections.set('host', connection);
 
     pc.onicecandidate = async (event) => {
-        if (event.candidate) {
+        if (!event.candidate) return;
+        try {
             const candidateCollection = collection(db, 'rooms', roomId, 'peers', localId, 'peerCandidates');
             await addDoc(candidateCollection, event.candidate.toJSON());
+        } catch (error) {
+            console.error('Failed to publish peer ICE candidate:', error);
         }
     };
     
@@ -401,9 +455,13 @@ const proceedWithJoin = async (roomId) => {
     const unsubscribe = onSnapshot(hostCandidates, (snapshot) => {
         snapshot.docChanges().forEach((change) => {
             if (change.type === 'added' && pc.connectionState !== 'closed') {
-                pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
+                pc.addIceCandidate(new RTCIceCandidate(change.doc.data()))
+                    .catch((error) => console.error('Failed to add host ICE candidate:', error));
             }
         });
+    }, (error) => {
+        console.error('Host candidate listener error:', error);
+        updateStatus('Connection error: candidate listener failed.', 'error');
     });
     connection.unsubscribe = unsubscribe; // Store the unsubscribe function
 
@@ -430,7 +488,7 @@ const proceedWithJoin = async (roomId) => {
                 if (roomPassword) {
                     answer = await decryptData(answer, roomPassword);
                 }
-                pc.setRemoteDescription(new RTCSessionDescription(answer));
+                await pc.setRemoteDescription(new RTCSessionDescription(answer));
             } catch (e) {
                 console.error("Decryption failed - wrong password");
                 passwordPromptInput.value = "";
@@ -440,6 +498,9 @@ const proceedWithJoin = async (roomId) => {
                 peerConnections.delete('host');
             }
         }
+    }, (error) => {
+        console.error('Peer document listener error:', error);
+        updateStatus('Connection error: failed to receive host response.', 'error');
     });
     
     window.addEventListener('beforeunload', () => deleteDoc(peerRef));
@@ -451,11 +512,30 @@ const setupDataChannel = (id, connection) => {
         if (connection.pc.connectionState === 'connected' && !isHost) {
             updateStatus(`Connected to ${roomMode === 'p2p' ? 'peer' : 'host'}!`, 'connected');
         }
+        if (connection.pc.connectionState === 'failed') {
+            updateStatus('Connection failed. Refresh both devices and try again.', 'error');
+        }
         updateParticipantsList();
+    };
+
+    connection.pc.oniceconnectionstatechange = () => {
+        const iceState = connection.pc.iceConnectionState;
+        console.log(`ICE state with ${id}: ${iceState}`);
+        if (iceState === 'checking') {
+            updateStatus('Establishing secure peer connection...', 'progress');
+        }
+        if (iceState === 'failed') {
+            updateStatus('Could not establish network route between devices.', 'error');
+        }
+    };
+
+    connection.pc.onicecandidateerror = (event) => {
+        console.warn(`ICE candidate error with ${id}:`, event.errorText || event);
     };
     
     connection.dc.onopen = () => {
         console.log(`Data channel with ${id} opened.`);
+        clearConnectionHint();
         chatContainer.classList.remove('hidden');
         updateParticipantsList();
          if (isHost) {
@@ -929,6 +1009,7 @@ const handleDrop = (e) => {
 };
 
 const stopSharing = () => {
+    clearConnectionHint();
     // Close all peer connections
     for (const [peerId, connection] of peerConnections.entries()) {
         if (connection.pc) {
