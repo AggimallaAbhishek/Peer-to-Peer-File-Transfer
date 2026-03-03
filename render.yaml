@@ -10,4 +10,28 @@ services:
       - key: NODE_VERSION
         value: 20
       - key: CORS_ORIGIN
-        value: "*"
+        fromService:
+          type: web
+          name: directdrop-frontend
+          property: host
+
+  - type: web
+    name: directdrop-frontend
+    runtime: static
+    buildCommand: |
+      if [ -n "$BACKEND_HOST" ]; then
+        printf 'window.DIRECTDROP_CONFIG = { backendUrl: "https://%s" };\n' "$BACKEND_HOST" > frontend/config.js
+      else
+        cp frontend/config.example.js frontend/config.js
+      fi
+    staticPublishPath: ./frontend
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: BACKEND_HOST
+        fromService:
+          type: web
+          name: directdrop-backend
+          property: host

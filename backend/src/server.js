@@ -24,10 +24,27 @@ const DEFAULT_ICE_SERVERS = [
   }
 ];
 
+const normalizeOrigin = (origin) => {
+  const value = (origin || '').trim();
+  if (!value) return null;
+  if (value === '*') return '*';
+  if (value.startsWith('http://') || value.startsWith('https://')) {
+    return value;
+  }
+  return `https://${value}`;
+};
+
 const getCorsOrigins = () => {
   const rawOrigins = (process.env.CORS_ORIGIN || '*').trim();
   if (rawOrigins === '*') return true;
-  return rawOrigins.split(',').map((origin) => origin.trim()).filter(Boolean);
+
+  const origins = rawOrigins
+    .split(',')
+    .map((origin) => normalizeOrigin(origin))
+    .filter(Boolean);
+
+  if (origins.includes('*')) return true;
+  return origins.length > 0 ? origins : true;
 };
 
 const getIceServers = () => {

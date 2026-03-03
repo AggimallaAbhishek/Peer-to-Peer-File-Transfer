@@ -23,7 +23,7 @@ Peer-to-Peer-File-Transfer/
     package.json
     .env.example
   netlify.toml              # Frontend deploy config (Netlify)
-  render.yaml               # Backend deploy config (Render)
+  render.yaml               # Full Render blueprint (frontend + backend)
   package.json              # Workspace scripts
 ```
 
@@ -34,7 +34,7 @@ Peer-to-Peer-File-Transfer/
 - Added runtime config endpoint (`/api/runtime-config`) for ICE server config.
 - Frontend now optionally pulls ICE servers from backend (falls back to defaults).
 - Added service worker registration and improved cache handling.
-- Added deployment files for Netlify (frontend) and Render (backend).
+- Added deployment files for Netlify (frontend) and Render (frontend + backend blueprint).
 
 ## Local Development
 
@@ -97,16 +97,41 @@ Steps:
 
 After deploying frontend, update `frontend/config.js` with your backend URL and redeploy frontend.
 
-### Backend (Render)
+### Render (Frontend + Backend)
 
-This repo includes `render.yaml` for a Node web service rooted at `backend/`.
+This repo includes `render.yaml` that deploys both services together:
+
+- `directdrop-backend` (Node API)
+- `directdrop-frontend` (static site)
+- Frontend gets backend URL automatically from Render service discovery.
+- Backend CORS is automatically set to the frontend host.
 
 Steps:
 
 1. Create a new Render Blueprint service from this repo.
-2. Set env vars in Render:
-   - `CORS_ORIGIN` = your frontend domain
-   - Optional: `ICE_SERVERS_JSON` for custom TURN/STUN servers
+2. Confirm both services are selected.
+3. Click `Apply` to deploy.
+4. Optional: set `ICE_SERVERS_JSON` on backend for custom TURN/STUN servers.
+
+### Backend Only (Render)
+
+If you only want backend on Render and frontend elsewhere:
+
+1. Create a Render web service using `rootDir=backend`.
+2. Build command: `npm install`
+3. Start command: `npm start`
+4. Set `CORS_ORIGIN` to your frontend domain.
+5. Optional: set `ICE_SERVERS_JSON` for custom TURN/STUN.
+6. Deploy.
+
+### Frontend (Netlify)
+
+This repo also includes `netlify.toml` configured to deploy from `frontend/`.
+
+Steps:
+
+1. Import the repo in Netlify.
+2. Keep the default config from `netlify.toml`.
 3. Deploy.
 
 ## API Endpoints (Backend)
