@@ -3,36 +3,65 @@ const firebaseConfig = JSON.parse(atob("eyJhcGlLZXkiOiJBSXphU3lBdTFLZUhVV2ExQTd6
 
 // Import Firebase modules
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, addDoc, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, addDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 // --- WebRTC Configuration ---
-const servers = {
-    iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        {
-            urls: 'turn:openrelay.metered.ca:80',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
-        },
-        {
-            urls: "turn:openrelay.metered.ca:443",
-            username: "openrelayproject",
-            credential: "openrelayproject",
-        },
-        {
-            urls: "turn:openrelay.metered.ca:443?transport=tcp",
-            username: "openrelayproject",
-            credential: "openrelayproject",
-        },
-    ],
-};
+const DEFAULT_ICE_SERVERS = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    {
+        urls: 'turn:openrelay.metered.ca:80',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+    },
+    {
+        urls: "turn:openrelay.metered.ca:443",
+        username: "openrelayproject",
+        credential: "openrelayproject",
+    },
+    {
+        urls: "turn:openrelay.metered.ca:443?transport=tcp",
+        username: "openrelayproject",
+        credential: "openrelayproject",
+    },
+];
+const servers = { iceServers: [...DEFAULT_ICE_SERVERS] };
 const CHUNK_SIZE = 256 * 1024;
 const BUFFERED_AMOUNT_LOW_THRESHOLD = 16 * 1024 * 1024;
+
+const getBackendBaseUrl = () => {
+    const configuredUrl = window.DIRECTDROP_CONFIG?.backendUrl?.trim();
+    if (configuredUrl) {
+        return configuredUrl.replace(/\/+$/, '');
+    }
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        return 'http://localhost:8080';
+    }
+    return '';
+};
+
+const loadRuntimeConfig = async () => {
+    const backendBaseUrl = getBackendBaseUrl();
+    if (!backendBaseUrl) return;
+
+    try {
+        const response = await fetch(`${backendBaseUrl}/api/runtime-config`, {
+            headers: { Accept: 'application/json' }
+        });
+        if (!response.ok) return;
+
+        const runtimeConfig = await response.json();
+        if (Array.isArray(runtimeConfig.iceServers) && runtimeConfig.iceServers.length > 0) {
+            servers.iceServers = runtimeConfig.iceServers;
+        }
+    } catch (error) {
+        console.warn('Backend config unavailable, using default ICE servers.', error);
+    }
+};
 
 // --- DOM Elements ---
 const dropZone = document.getElementById('drop-zone');
@@ -133,7 +162,8 @@ async function decryptData(encryptedBase64, password) {
 
 
 // --- Core Logic ---
-const initialize = () => {
+const initialize = async () => {
+    await loadRuntimeConfig();
     localId = crypto.randomUUID();
     const urlParams = new URLSearchParams(window.location.search);
     roomId = urlParams.get('id');
@@ -158,6 +188,12 @@ const initialize = () => {
     dropZone.addEventListener('dragleave', handleDragLeave);
     dropZone.addEventListener('drop', handleDrop);
     stopShareBtn.addEventListener('click', stopSharing);
+
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js').catch((error) => {
+            console.warn('Service worker registration failed:', error);
+        });
+    }
 
     window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
@@ -940,5 +976,8 @@ const stopSharing = () => {
     window.history.pushState({}, '', window.location.pathname);
 };
 
-initialize();
+initialize().catch((error) => {
+    console.error('Initialization failed:', error);
+    updateStatus('Error: Failed to initialize app.', 'error');
+});
 

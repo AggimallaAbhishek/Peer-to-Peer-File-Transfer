@@ -1,0 +1,18 @@
+{
+  "name": "directdrop-backend",
+  "version": "1.0.0",
+  "description": "Backend API for DirectDrop deployment and runtime config",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
+  }
+}

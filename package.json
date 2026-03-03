@@ -1,0 +1,15 @@
+{
+  "name": "peer-to-peer-file-transfer",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "dev:frontend": "npm --workspace frontend run dev",
+    "dev:backend": "npm --workspace backend run dev",
+    "start:frontend": "npm --workspace frontend run start",
+    "start:backend": "npm --workspace backend run start"
+  }
+}
