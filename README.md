@@ -1,101 +1,121 @@
-**This is the live demo link to the website** -- https://p2pfile-transfer.netlify.app/
+# DirectDrop - Peer-to-Peer File Transfer
 
-<img width="400" height="400" alt="https___p2pfile-transfer netlify app_" src="https://github.com/user-attachments/assets/6ee7f95f-2f27-43a1-9b10-93560f80a6fd" />
+DirectDrop is a WebRTC-based file sharing app. This repository is now split into separate frontend and backend services so both can be deployed cleanly.
 
-# DirectDrop – Secure P2P File Sharing 🔗✨
+Live frontend (existing): https://p2pfile-transfer.netlify.app/
 
-DirectDrop is a fast, **privacy-focused, serverless file sharing app** that uses **WebRTC** to connect devices directly 🌍💫. No central server ever handles your files — only you and your peers.  
+## Project Structure
 
-It’s lightweight, encrypted, and works directly from your browser. You can even install it as a **Progressive Web App (PWA)** 📱💻.
+```text
+Peer-to-Peer-File-Transfer/
+  frontend/                 # Static web app (HTML/CSS/JS + PWA)
+    index.html
+    script.js
+    style.css
+    sw.js
+    manifest.json
+    config.js
+    config.example.js
+    _headers
+    package.json
+  backend/                  # Node.js API service
+    src/server.js
+    package.json
+    .env.example
+  netlify.toml              # Frontend deploy config (Netlify)
+  render.yaml               # Backend deploy config (Render)
+  package.json              # Workspace scripts
+```
 
----
+## What Changed
 
-## 🚀 Features
+- Moved the existing web app into `frontend/`.
+- Added a deployable backend in `backend/`.
+- Added runtime config endpoint (`/api/runtime-config`) for ICE server config.
+- Frontend now optionally pulls ICE servers from backend (falls back to defaults).
+- Added service worker registration and improved cache handling.
+- Added deployment files for Netlify (frontend) and Render (backend).
 
-- **🔒 End-to-End Encryption (AES-GCM)**
-- **👥 1-to-1 Private Sharing** or **📡 Group Broadcasting**
-- **📂 Share Anything**
-  - Files, folders (auto-zipped), notes, links, code snippets
-- **⚡ Smooth & Simple**
-  - Real-time progress indicators ⏳  
-  - Drag & Drop file sharing 📤  
-  - Dark Mode UI 🌙  
-  - Built-in chat 💬
-- **🔗 Easy Connections**
-  - Instant session link  
-  - Share via QR code 📷
-- **🧹 Privacy-First Design**
-  - Rooms auto-delete after use (1-to-1 instantly, groups after 1 hour)
+## Local Development
 
----
+### 1) Install dependencies
 
-## ⚙️ How It Works
+```bash
+npm install
+```
 
-1. 🏠 **Host starts a session** → A unique room link + QR code generated.  
-2. 👤 **Peers join** → Firestore handles initial signaling.  
-3. 🔗 **Direct peer-to-peer connection** via WebRTC is established.  
-4. 📦 **Transfer files & messages** directly and securely.  
-5. 🧹 **Auto-cleanup** → Signaling data removed for max privacy.  
+### 2) Run backend
 
----
+```bash
+npm run dev:backend
+```
 
-## 📖 Getting Started
+Backend runs on `http://localhost:8080` by default.
 
-### As Host
-1. Open DirectDrop.  
-2. Choose *1-to-1 Sharing* or *Broadcast to a Group*.  
-3. (Optional) Add a session password 🔐.  
-4. Share the unique **link** or **QR code**.  
-5. Start sharing files instantly 🎉.  
+### 3) Run frontend
 
-### As Peer
-1. Open the session link or scan the QR code 🔗📷.  
-2. Enter password if required 🔑.  
-3. Start receiving files in real-time ⚡⬇️.  
+In another terminal:
 
----
+```bash
+npm run dev:frontend
+```
 
-## 🛠️ Tech Stack
+Frontend runs on `http://localhost:5173`.
 
-- **Frontend:** HTML5, CSS3, JavaScript (ES Modules)  
-- **UI Styling:** Tailwind CSS 🎨  
-- **P2P Engine:** WebRTC (RTCPeerConnection + RTCDataChannel) 🔗  
-- **Signaling:** Firebase Firestore ☁️  
-- **Compression:** JSZip 📦  
-- **Encryption:** Web Crypto API (AES-GCM) 🛡️  
-- **QR Codes:** qrcode.js 📷  
+## Frontend Configuration
 
----
+`frontend/config.js` controls runtime backend integration:
 
-## 🖼️ Preview (Coming Soon)
+```js
+window.DIRECTDROP_CONFIG = {
+  backendUrl: ""
+};
+```
 
-*(Screenshot or demo GIF of the app UI here)*
+- Local: you can set `backendUrl: "http://localhost:8080"`
+- Production: set your deployed backend URL
 
----
+## Backend Environment
 
-## 📌 Roadmap
+Use `backend/.env.example` as a reference:
 
-- [ ] File preview before sending 📑  
-- [ ] Multi-device sync option 🔄  
-- [ ] Offline-ready transfers 🔌  
+- `PORT` (default `8080`)
+- `CORS_ORIGIN` (e.g. `https://your-frontend-domain.com`)
+- `ICE_SERVERS_JSON` (optional JSON array string)
 
----
+## Deployment
 
-## 👨‍💻 Contributing
+### Frontend (Netlify)
 
-Contributions are welcome!  
-1. Fork the repo 🍴  
-2. Create your feature branch 🌱  
-3. Commit changes ✅  
-4. Push and create a Pull Request 🔀  
+This repo already includes `netlify.toml` configured to deploy from `frontend/`.
 
----
+Steps:
 
-## 📜 License
+1. Import the repo in Netlify.
+2. Keep the default config from `netlify.toml`.
+3. Deploy.
 
-This project is licensed under the **MIT License**.  
-See [LICENSE](LICENSE) for more details.
+After deploying frontend, update `frontend/config.js` with your backend URL and redeploy frontend.
 
----
+### Backend (Render)
 
-✨ With **DirectDrop**, sharing is as simple as **Click ➝ Connect ➝ Send** 🚀🔗🎉
+This repo includes `render.yaml` for a Node web service rooted at `backend/`.
+
+Steps:
+
+1. Create a new Render Blueprint service from this repo.
+2. Set env vars in Render:
+   - `CORS_ORIGIN` = your frontend domain
+   - Optional: `ICE_SERVERS_JSON` for custom TURN/STUN servers
+3. Deploy.
+
+## API Endpoints (Backend)
+
+- `GET /health` -> service health
+- `GET /api/runtime-config` -> runtime ICE server config for frontend
+
+## Notes
+
+- WebRTC file data is still peer-to-peer.
+- Firebase Firestore is still used for signaling in the current frontend logic.
+- Backend is now deployment-ready, but actual cloud deployment must be triggered from your Netlify/Render accounts.
