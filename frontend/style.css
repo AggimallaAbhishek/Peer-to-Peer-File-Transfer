@@ -165,9 +165,225 @@ body {
     background: linear-gradient(120deg, #20d4c0, #26afde) !important;
 }
 
+#share-screen {
+    animation: fade-slide-up 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+#share-screen > div,
+#share-screen > p,
+#share-screen > button {
+    border-radius: 14px;
+}
+
+#share-link {
+    background: rgba(33, 56, 80, 0.66) !important;
+    border-color: rgba(131, 176, 218, 0.28) !important;
+    color: #e2f2ff !important;
+    font-weight: 600;
+}
+
+#copy-btn {
+    border-color: rgba(119, 169, 214, 0.3) !important;
+    background: linear-gradient(150deg, rgba(55, 88, 120, 0.95), rgba(42, 71, 102, 0.95)) !important;
+}
+
+#copy-btn:hover {
+    background: linear-gradient(150deg, rgba(64, 101, 137, 0.95), rgba(48, 82, 117, 0.95)) !important;
+}
+
+#room-id-text {
+    color: #90afcc !important;
+    background: rgba(26, 47, 70, 0.52);
+    border: 1px solid rgba(117, 160, 199, 0.25);
+    border-radius: 10px;
+    padding: 0.5rem 0.6rem;
+}
+
+#qr-code-area {
+    padding: 0.95rem;
+    border: 1px solid rgba(106, 157, 199, 0.23);
+    background: linear-gradient(165deg, rgba(23, 44, 66, 0.72), rgba(14, 33, 53, 0.68));
+}
+
+#qr-code-area label {
+    color: #c9ddf0 !important;
+    font-weight: 700;
+}
+
+#qr-code-container {
+    border-radius: 14px !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+}
+
 #status-container {
     border: 1px solid rgba(117, 173, 213, 0.24);
     box-shadow: inset 0 1px 0 rgba(173, 224, 255, 0.08);
+    transition: background 260ms ease, border-color 260ms ease, box-shadow 260ms ease;
+    background: linear-gradient(165deg, rgba(38, 57, 80, 0.8), rgba(30, 48, 70, 0.8));
+}
+
+#status-container.bg-gray-700 {
+    background: linear-gradient(165deg, rgba(38, 57, 80, 0.8), rgba(30, 48, 70, 0.8)) !important;
+    border-color: rgba(125, 171, 209, 0.24) !important;
+}
+
+#status-container.bg-indigo-700 {
+    background: linear-gradient(165deg, rgba(27, 109, 138, 0.8), rgba(17, 91, 129, 0.8)) !important;
+    border-color: rgba(130, 224, 253, 0.36) !important;
+    box-shadow: inset 0 1px 0 rgba(182, 244, 255, 0.12), 0 8px 24px rgba(1, 30, 45, 0.35);
+}
+
+#status-container.bg-green-700 {
+    background: linear-gradient(165deg, rgba(28, 133, 101, 0.82), rgba(20, 114, 87, 0.82)) !important;
+    border-color: rgba(144, 242, 198, 0.35) !important;
+}
+
+#status-container.bg-red-700 {
+    background: linear-gradient(165deg, rgba(156, 58, 72, 0.85), rgba(132, 46, 60, 0.85)) !important;
+    border-color: rgba(247, 162, 174, 0.32) !important;
+}
+
+#status-message {
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+
+#privacy-notice {
+    color: #8ea5be !important;
+    letter-spacing: 0.008em;
+}
+
+#participants-container,
+#sharing-mode-container,
+#chat-container,
+#file-confirmation-container,
+#sending-queue-container,
+#received-files-container,
+#received-text-container {
+    border: 1px solid rgba(109, 159, 198, 0.24);
+    background: linear-gradient(165deg, rgba(24, 44, 67, 0.7), rgba(15, 33, 53, 0.64));
+    border-radius: 14px;
+    padding: 0.9rem;
+    box-shadow: inset 0 1px 0 rgba(163, 215, 247, 0.07);
+}
+
+#participants-container p,
+#sending-queue-container p,
+#received-files-container p,
+#received-text-container p {
+    color: #d5e9ff !important;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+
+#participants-list > div {
+    background: rgba(43, 66, 90, 0.66) !important;
+    border: 1px solid rgba(113, 157, 197, 0.22);
+}
+
+#show-files-btn,
+#show-text-btn {
+    border: 1px solid rgba(111, 158, 197, 0.23);
+    background: rgba(40, 61, 84, 0.68);
+    transition: all 180ms ease;
+}
+
+#show-files-btn.bg-gray-600,
+#show-text-btn.bg-gray-600 {
+    background: linear-gradient(130deg, rgba(25, 189, 163, 0.82), rgba(29, 147, 189, 0.82)) !important;
+    border-color: rgba(164, 251, 235, 0.36) !important;
+}
+
+#show-files-btn.text-gray-400,
+#show-text-btn.text-gray-400 {
+    color: #9ab0c8 !important;
+}
+
+#file-selection-container button,
+#send-text-btn,
+#chat-send-btn,
+#send-btn,
+#select-files-btn,
+#select-folder-btn,
+#password-prompt-submit,
+#password-prompt-cancel,
+#cancel-btn,
+#scanner-close-btn,
+#stop-share-btn {
+    border: 1px solid transparent;
+    transition: transform 180ms ease, box-shadow 180ms ease, filter 180ms ease;
+}
+
+#select-files-btn,
+#send-btn,
+#send-text-btn,
+#chat-send-btn,
+#password-prompt-submit {
+    background: linear-gradient(125deg, #18c9ac, #1da7d3) !important;
+    box-shadow: 0 10px 18px rgba(4, 24, 38, 0.34);
+}
+
+#select-folder-btn,
+#cancel-btn,
+#password-prompt-cancel {
+    background: linear-gradient(135deg, rgba(90, 112, 136, 0.92), rgba(71, 93, 116, 0.92)) !important;
+    border-color: rgba(146, 175, 205, 0.3);
+}
+
+#stop-share-btn,
+#scanner-close-btn {
+    background: linear-gradient(125deg, #de4e63, #c83a4d) !important;
+}
+
+#file-selection-container button:hover,
+#send-text-btn:hover,
+#chat-send-btn:hover,
+#send-btn:hover,
+#password-prompt-submit:hover,
+#password-prompt-cancel:hover,
+#cancel-btn:hover,
+#scanner-close-btn:hover,
+#stop-share-btn:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.05);
+}
+
+#chat-log {
+    background: rgba(9, 23, 39, 0.84) !important;
+    border: 1px solid rgba(102, 151, 191, 0.2);
+}
+
+#chat-input,
+#text-snippet-input,
+#recipient-select,
+#password-prompt-input,
+#room-password-input,
+#file-info-text {
+    border-color: rgba(115, 162, 200, 0.28) !important;
+}
+
+#chat-input,
+#text-snippet-input,
+#recipient-select,
+#password-prompt-input,
+#room-password-input {
+    background: rgba(43, 66, 90, 0.62) !important;
+    color: #def1ff !important;
+}
+
+#chat-input::placeholder,
+#text-snippet-input::placeholder,
+#room-password-input::placeholder {
+    color: #9ab2cb !important;
+}
+
+#password-prompt-container > div {
+    border: 1px solid rgba(110, 160, 200, 0.32);
+    background: linear-gradient(165deg, rgba(21, 40, 62, 0.95), rgba(12, 29, 48, 0.95));
+}
+
+#password-error-text {
+    color: #ff8e9a !important;
 }
 
 #scanner-modal-container {
@@ -198,6 +414,17 @@ body {
 #start-screen > :nth-child(2) { animation-delay: 130ms; }
 #start-screen > :nth-child(3) { animation-delay: 180ms; }
 #start-screen > :nth-child(4) { animation-delay: 240ms; }
+#share-screen > * {
+    opacity: 0;
+    transform: translateY(8px);
+    animation: rise-in 420ms ease forwards;
+}
+
+#share-screen > :nth-child(1) { animation-delay: 40ms; }
+#share-screen > :nth-child(2) { animation-delay: 90ms; }
+#share-screen > :nth-child(3) { animation-delay: 130ms; }
+#share-screen > :nth-child(4) { animation-delay: 170ms; }
+#share-screen > :nth-child(5) { animation-delay: 210ms; }
 
 .lds-ring {
     display: inline-block;
@@ -241,6 +468,17 @@ body {
 }
 
 @keyframes rise-in {
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes fade-slide-up {
+    from {
+        opacity: 0;
+        transform: translateY(16px);
+    }
     to {
         opacity: 1;
         transform: translateY(0);
@@ -306,5 +544,16 @@ body {
         width: 40px;
         height: 40px;
         border-radius: 11px;
+    }
+
+    #share-screen > div,
+    #participants-container,
+    #sharing-mode-container,
+    #chat-container,
+    #file-confirmation-container,
+    #sending-queue-container,
+    #received-files-container,
+    #received-text-container {
+        padding: 0.7rem;
     }
 }
