@@ -107,7 +107,10 @@ const bindSignalingHandlers = () => {
 
     signalingSocket.on("room:closed", ({ roomId: closedRoomId, reason }) => {
         if (!roomId || closedRoomId !== roomId) return;
-        if (!isHost && reason !== "p2p-established") {
+        if (!isHost) {
+            peerRoomMembershipActive = false;
+            clearConnectionHint();
+            cleanupConnection('host', { closePeerConnection: true });
             updateStatus(`Session closed by host (${reason || 'closed'}).`, 'error');
         }
     });
@@ -315,6 +318,7 @@ let scannerAnimationFrame = null;
 let scannerIsActive = false;
 let scannerCanvas = null;
 let scannerCanvasContext = null;
+let peerRoomMembershipActive = false;
 const pendingPeerCandidates = new Map();
 const pendingHostCandidates = new Map();
 const pendingAnswers = new Map();
@@ -334,6 +338,22 @@ const clearConnectionHint = () => {
     if (connectionHintTimer) {
         clearTimeout(connectionHintTimer);
         connectionHintTimer = null;
+    }
+};
+
+const notifyPeerLeaveRoom = async (reason = 'peer-left') => {
+    if (isHost || !peerRoomMembershipActive || !roomId || !localId || !signalingSocket?.connected) return;
+
+    try {
+        await emitSignaling('peer:leave-room', {
+            roomId,
+            peerId: localId,
+            reason
+        });
+    } catch (error) {
+        console.warn('Peer leave notification failed:', error);
+    } finally {
+        peerRoomMembershipActive = false;
     }
 };
 
@@ -714,6 +734,7 @@ const initialize = async () => {
         if (isHost) {
             signalingSocket.emit('host:close-room', { roomId, reason: 'host-page-unload' });
         } else {
+            peerRoomMembershipActive = false;
             signalingSocket.emit('peer:leave-room', { roomId, peerId: localId });
         }
     });
@@ -800,6 +821,7 @@ const handleNewPeer = async (peerId, peerPayload) => {
 const createRoom = async () => {
     closeQrScannerModal();
     if (scanQrBtn) scanQrBtn.classList.add('hidden');
+    peerRoomMembershipActive = false;
     isHost = true;
     if (roomMode === 'group') {
         roomPassword = roomPasswordInput.value || null;
@@ -856,6 +878,7 @@ const createRoom = async () => {
 const joinRoom = async (roomId) => {
     closeQrScannerModal();
     if (scanQrBtn) scanQrBtn.classList.add('hidden');
+    peerRoomMembershipActive = false;
     if (!roomId || roomId.length < 8) {
         updateStatus('Invalid room link. Ask host to share the exact link or QR.', 'error');
         return;
@@ -955,6 +978,7 @@ const proceedWithJoin = async (roomId) => {
         peerId: localId,
         offer: offerToSend
     });
+    peerRoomMembershipActive = true;
 
     const queuedCandidates = pendingHostCandidates.get(localId) || [];
     pendingHostCandidates.delete(localId);
@@ -986,6 +1010,9 @@ const setupDataChannel = (id, connection) => {
             updateStatus(`Connected to ${roomMode === 'p2p' ? 'peer' : 'host'}!`, 'connected');
         }
         if (state === 'failed' || state === 'closed') {
+            if (!isHost && id === 'host') {
+                notifyPeerLeaveRoom('rtc-state-failed-or-closed');
+            }
             clearConnectionHint();
             updateStatus('Connection failed. Refresh both devices and try again.', 'error');
             cleanupConnection(id);
@@ -996,6 +1023,9 @@ const setupDataChannel = (id, connection) => {
                 const current = peerConnections.get(id);
                 if (current && current.pc.connectionState === 'disconnected') {
                     console.warn(`Cleaning up stalled connection: ${id}`);
+                    if (!isHost && id === 'host') {
+                        notifyPeerLeaveRoom('rtc-disconnected-timeout');
+                    }
                     cleanupConnection(id, { closePeerConnection: true });
                 }
             }, 10000);
@@ -1010,6 +1040,9 @@ const setupDataChannel = (id, connection) => {
             updateStatus('Establishing secure peer connection...', 'progress');
         }
         if (iceState === 'failed') {
+            if (!isHost && id === 'host') {
+                notifyPeerLeaveRoom('ice-failed');
+            }
             clearConnectionHint();
             updateStatus('Could not establish network route between devices.', 'error');
             cleanupConnection(id, { closePeerConnection: true });
@@ -1032,14 +1065,15 @@ const setupDataChannel = (id, connection) => {
 
         if (roomMode === 'p2p' && isHost) {
             qrCodeArea.classList.add('hidden');
-            console.log('P2P connection established. Closing signaling room.');
-            emitSignaling('host:close-room', { roomId, reason: 'p2p-established' })
-                .catch((error) => console.warn('Failed to close signaling room:', error));
-            updateStatus('Connected to peer! Signaling server disconnected for privacy.', 'connected');
+            console.log('P2P connection established.');
+            updateStatus('Connected to peer!', 'connected');
         }
     };
     connection.dc.onclose = () => {
         console.log(`Data channel with ${id} closed.`);
+        if (!isHost && id === 'host') {
+            notifyPeerLeaveRoom('datachannel-closed');
+        }
         cleanupConnection(id);
          if (roomMode === 'p2p' && isHost) {
             qrCodeArea.classList.remove('hidden');
@@ -1511,10 +1545,7 @@ const stopSharing = async () => {
                     reason: 'host-stopped-sharing'
                 });
             } else {
-                await emitSignaling('peer:leave-room', {
-                    roomId: activeRoomId,
-                    peerId: localId
-                });
+                await notifyPeerLeaveRoom('peer-stopped-sharing');
             }
         } catch (error) {
             console.warn('Failed to clean up signaling room:', error);
@@ -1526,6 +1557,7 @@ const stopSharing = async () => {
     roomPassword = null;
     filesToSend = [];
     receivingStates.clear();
+    peerRoomMembershipActive = false;
     pendingPeerCandidates.clear();
     pendingHostCandidates.clear();
     pendingAnswers.clear();

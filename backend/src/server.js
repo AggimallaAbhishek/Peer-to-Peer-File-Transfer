@@ -476,13 +476,13 @@ io.on('connection', (socket) => {
 
     const room = rooms.get(normalizedRoomId);
     if (!room) {
-      ackError(ack, 'Room does not exist.');
+      ackOk(ack);
       return;
     }
 
     const peer = room.peers.get(normalizedPeerId);
     if (!peer || peer.socketId !== socket.id) {
-      ackError(ack, 'Peer is not part of the room.');
+      ackOk(ack);
       return;
     }
 
