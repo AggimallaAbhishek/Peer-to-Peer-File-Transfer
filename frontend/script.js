@@ -1,5 +1,13 @@
 // --- Firebase Configuration ---
-const firebaseConfig = JSON.parse(atob("eyJhcGlLZXkiOiJBSXphU3lBdTFLZUhVV2ExQTd6djhINHNNTmpCNnpnNE9SOVlWMmMiLCJhdXRoRG9tYWluIjoicDJwLWZpbGUtdHJhbnNmZXItYjQyYzUuZmlyZWJhc2VhcHAuY29tIiwicHJvamVjdElkIjoicDJwLWZpbGUtdHJhbnNmZXItYjQyYzUiLCJzdG9yYWdlQnVja2V0IjoicDJwLWZpbGUtdHJhbnNmZXItYjQyYzUuYXBwc3BvdC5jb20iLCJtZXNzYWdpbmdTZW5kZXJJZCI6IjI0NDg5NTM1MTgxNiJ9"));
+const firebaseConfig = {
+    apiKey: "AIzaSyAS12gabRuWTvspJqCOkssrWF8mr3hbgFU",
+    authDomain: "p2p-file-transfer-b42c5.firebaseapp.com",
+    projectId: "p2p-file-transfer-b42c5",
+    storageBucket: "p2p-file-transfer-b42c5.firebasestorage.app",
+    messagingSenderId: "244895351816",
+    appId: "1:244895351816:web:fc2bcce8546961f0747dbd",
+    measurementId: "G-9GRSTEVXMN"
+};
 
 // Import Firebase modules
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
