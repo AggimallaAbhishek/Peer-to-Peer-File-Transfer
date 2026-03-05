@@ -1,25 +1,4 @@
-// --- Firebase Configuration ---
-const firebaseConfig = {
-    apiKey: "AIzaSyAS12gabRuWTvspJqCOkssrWF8mr3hbgFU",
-    authDomain: "p2p-file-transfer-b42c5.firebaseapp.com",
-    projectId: "p2p-file-transfer-b42c5",
-    storageBucket: "p2p-file-transfer-b42c5.firebasestorage.app",
-    messagingSenderId: "244895351816",
-    appId: "1:244895351816:web:fc2bcce8546961f0747dbd",
-    measurementId: "G-9GRSTEVXMN"
-};
-
-// Import Firebase modules
-import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-import { initializeFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, addDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const db = initializeFirestore(app, {
-    // Improves reliability on networks where Firestore's default WebChannel transport is blocked.
-    experimentalAutoDetectLongPolling: true,
-    useFetchStreams: false
-});
+// --- Signaling Configuration ---
 
 // --- WebRTC Configuration ---
 const DEFAULT_ICE_SERVERS = [
@@ -63,6 +42,160 @@ const getBackendBaseUrl = () => {
         return 'http://localhost:8080';
     }
     return '';
+};
+
+const getSignalingBaseUrl = () => {
+    const backendBaseUrl = getBackendBaseUrl();
+    return backendBaseUrl || window.location.origin;
+};
+
+const waitForSocketConnection = (socket, timeoutMs = 10000) => new Promise((resolve, reject) => {
+    if (socket.connected) {
+        resolve();
+        return;
+    }
+
+    const onConnect = () => {
+        cleanup();
+        resolve();
+    };
+    const onError = (error) => {
+        cleanup();
+        reject(error || new Error('Could not connect to signaling server.'));
+    };
+    const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error('Signaling connection timed out.'));
+    }, timeoutMs);
+
+    const cleanup = () => {
+        clearTimeout(timer);
+        socket.off('connect', onConnect);
+        socket.off('connect_error', onError);
+    };
+
+    socket.on('connect', onConnect);
+    socket.on('connect_error', onError);
+});
+
+const emitSignaling = (event, payload, timeoutMs = 10000) => new Promise((resolve, reject) => {
+    if (!signalingSocket) {
+        reject(new Error('Signaling socket is not initialized.'));
+        return;
+    }
+
+    signalingSocket.timeout(timeoutMs).emit(event, payload, (error, response) => {
+        if (error) {
+            reject(error);
+            return;
+        }
+        if (!response?.ok) {
+            reject(new Error(response?.error || `Signaling event failed: ${event}`));
+            return;
+        }
+        resolve(response);
+    });
+});
+
+const bindSignalingHandlers = () => {
+    if (!signalingSocket || signalingHandlersBound) return;
+    signalingHandlersBound = true;
+
+    signalingSocket.on("disconnect", (reason) => {
+        console.warn("Signaling disconnected:", reason);
+    });
+
+    signalingSocket.on("room:closed", ({ roomId: closedRoomId, reason }) => {
+        if (!roomId || closedRoomId !== roomId) return;
+        if (!isHost && reason !== "p2p-established") {
+            updateStatus(`Session closed by host (${reason || 'closed'}).`, 'error');
+        }
+    });
+
+    signalingSocket.on("room:peer-left", ({ roomId: eventRoomId, peerId }) => {
+        if (!isHost || eventRoomId !== roomId) return;
+        cleanupConnection(peerId, { closePeerConnection: true });
+    });
+
+    signalingSocket.on("room:peer-offer", ({ roomId: eventRoomId, peerId, offer }) => {
+        if (!isHost || eventRoomId !== roomId) return;
+        handleNewPeer(peerId, { offer }).catch((error) => {
+            console.error("Failed to process peer offer:", error);
+        });
+    });
+
+    signalingSocket.on("host:peer-candidate", ({ roomId: eventRoomId, peerId, candidate }) => {
+        if (!isHost || eventRoomId !== roomId) return;
+        const connection = peerConnections.get(peerId);
+        if (connection && connection.pc.connectionState !== "closed") {
+            connection.pc.addIceCandidate(new RTCIceCandidate(candidate))
+                .catch((error) => console.error("Failed to add peer candidate on host:", error));
+            return;
+        }
+        const queued = pendingPeerCandidates.get(peerId) || [];
+        queued.push(candidate);
+        pendingPeerCandidates.set(peerId, queued);
+    });
+
+    signalingSocket.on("peer:host-candidate", ({ roomId: eventRoomId, peerId, candidate }) => {
+        if (isHost || eventRoomId !== roomId || peerId !== localId) return;
+        const hostConnection = peerConnections.get("host");
+        if (hostConnection && hostConnection.pc.connectionState !== "closed") {
+            hostConnection.pc.addIceCandidate(new RTCIceCandidate(candidate))
+                .catch((error) => console.error("Failed to add host candidate on peer:", error));
+            return;
+        }
+        const queued = pendingHostCandidates.get(peerId) || [];
+        queued.push(candidate);
+        pendingHostCandidates.set(peerId, queued);
+    });
+
+    signalingSocket.on("peer:answer", ({ roomId: eventRoomId, peerId, answer }) => {
+        if (isHost || eventRoomId !== roomId || peerId !== localId) return;
+        const hostConnection = peerConnections.get("host");
+        if (hostConnection) {
+            applyHostAnswer(hostConnection, answer).catch((error) => {
+                console.error("Failed to apply host answer:", error);
+                updateStatus("Incorrect room password or invalid host response.", "error");
+                passwordPromptInput.value = "";
+                passwordErrorText.classList.remove("hidden");
+                passwordPromptContainer.classList.remove("hidden");
+                cleanupConnection("host", { closePeerConnection: true });
+            });
+            return;
+        }
+        pendingAnswers.set(peerId, answer);
+    });
+
+    signalingSocket.on("peer:join-error", ({ roomId: eventRoomId, peerId, reason }) => {
+        if (isHost || eventRoomId !== roomId || peerId !== localId) return;
+        updateStatus(reason || "Host rejected this join request.", "error");
+        passwordPromptInput.value = "";
+        passwordErrorText.classList.remove("hidden");
+        passwordErrorText.textContent = reason || "Incorrect password. Please try again.";
+        passwordPromptContainer.classList.remove("hidden");
+        cleanupConnection("host", { closePeerConnection: true });
+    });
+};
+
+const ensureSignalingSocket = async () => {
+    if (!window.io) {
+        throw new Error('Socket.IO client is missing. Check index.html.');
+    }
+
+    if (!signalingSocket) {
+        signalingSocket = window.io(getSignalingBaseUrl(), {
+            transports: ['websocket', 'polling'],
+            reconnection: true,
+            reconnectionAttempts: 10,
+            reconnectionDelay: 500,
+            timeout: 10000
+        });
+        bindSignalingHandlers();
+    }
+
+    await waitForSocketConnection(signalingSocket);
+    return signalingSocket;
 };
 
 const loadRuntimeConfig = async () => {
@@ -168,8 +301,12 @@ let roomId;
 let roomMode = 'p2p';
 let roomPassword = null;
 let deferredInstallPrompt = null;
-let roomUnsubscribe = null;
 let connectionHintTimer = null;
+let signalingSocket = null;
+let signalingHandlersBound = false;
+const pendingPeerCandidates = new Map();
+const pendingHostCandidates = new Map();
+const pendingAnswers = new Map();
 
 const scheduleConnectionHint = () => {
     if (connectionHintTimer) clearTimeout(connectionHintTimer);
@@ -217,12 +354,6 @@ const cleanupConnection = (id, { closePeerConnection = false } = {}) => {
         existing.pc.close();
     }
 
-    if (existing.ownsPeerDoc && existing.peerDocRef) {
-        deleteDoc(existing.peerDocRef).catch((error) => {
-            console.warn('Failed to clean up peer signaling document:', error);
-        });
-    }
-
     peerConnections.delete(id);
     updateParticipantsList();
 };
@@ -256,6 +387,19 @@ async function decryptData(encryptedBase64, password) {
     const decryptedContent = await window.crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
     return JSON.parse(new TextDecoder().decode(decryptedContent));
 }
+
+const applyHostAnswer = async (connection, answerPayload) => {
+    if (!connection || !connection.pc || connection.pc.connectionState === 'closed') return;
+
+    let answer = answerPayload;
+    if (roomPassword) {
+        answer = await decryptData(answerPayload, roomPassword);
+    }
+
+    if (!connection.pc.currentRemoteDescription) {
+        await connection.pc.setRemoteDescription(new RTCSessionDescription(answer));
+    }
+};
 
 
 // --- Core Logic ---
@@ -316,11 +460,29 @@ const initialize = async () => {
         installBtn.classList.add('hidden');
         console.log('PWA was installed');
     });
+    window.addEventListener('beforeunload', () => {
+        if (!signalingSocket || !roomId) return;
+        if (isHost) {
+            signalingSocket.emit('host:close-room', { roomId, reason: 'host-page-unload' });
+        } else {
+            signalingSocket.emit('peer:leave-room', { roomId, peerId: localId });
+        }
+    });
 };
 
-const handleNewPeer = async (peerId, peerDoc) => {
+const handleNewPeer = async (peerId, peerPayload) => {
     if (peerConnections.has(peerId) || peerId === localId) return;
-    if (roomMode === 'p2p' && countActivePeerConnections() >= 1) { return; }
+
+    if (roomMode === 'p2p' && countActivePeerConnections() >= 1) {
+        await emitSignaling('host:reject-peer', {
+            roomId,
+            peerId,
+            reason: 'Room already has an active peer.'
+        }).catch((error) => {
+            console.error('Failed to reject extra peer in P2P room:', error);
+        });
+        return;
+    }
 
     console.log(`New peer detected: ${peerId}`);
     const pc = new RTCPeerConnection(getRtcConfiguration());
@@ -328,41 +490,36 @@ const handleNewPeer = async (peerId, peerDoc) => {
     peerConnections.set(peerId, connection);
     updateParticipantsList();
 
-    let peerOffer = peerDoc.data().offer;
+    let peerOffer = peerPayload.offer;
     if (roomPassword) {
         try {
             peerOffer = await decryptData(peerOffer, roomPassword);
-        } catch (e) {
-            console.error("Failed to decrypt offer from peer - likely wrong password.");
+        } catch (error) {
+            console.error('Failed to decrypt peer offer:', error);
+            await emitSignaling('host:reject-peer', {
+                roomId,
+                peerId,
+                reason: 'Incorrect room password. Please retry.'
+            }).catch((emitError) => {
+                console.error('Failed to notify peer about password mismatch:', emitError);
+            });
             cleanupConnection(peerId, { closePeerConnection: true });
             return;
         }
     }
-    
+
     pc.onicecandidate = async (event) => {
         if (!event.candidate) return;
         try {
-            const candidateCollection = collection(db, 'rooms', roomId, 'peers', peerId, 'hostCandidates');
-            await addDoc(candidateCollection, event.candidate.toJSON());
+            await emitSignaling('host:ice-candidate', {
+                roomId,
+                peerId,
+                candidate: event.candidate.toJSON()
+            });
         } catch (error) {
             console.error('Failed to publish host ICE candidate:', error);
         }
     };
-    
-    const peerCandidates = collection(db, 'rooms', roomId, 'peers', peerId, 'peerCandidates');
-    const unsubscribe = onSnapshot(peerCandidates, (snapshot) => {
-        snapshot.docChanges().forEach((change) => {
-            const currentConnection = peerConnections.get(peerId);
-            if (change.type === 'added' && currentConnection && currentConnection.pc.connectionState !== 'closed') {
-                currentConnection.pc.addIceCandidate(new RTCIceCandidate(change.doc.data()))
-                    .catch((error) => console.error('Failed to add peer ICE candidate:', error));
-            }
-        });
-    }, (error) => {
-        console.error('Peer candidate listener error:', error);
-        updateStatus('Connection error: signaling listener failed.', 'error');
-    });
-    connection.unsubscribe = unsubscribe; // Store the unsubscribe function
 
     pc.ondatachannel = (event) => {
         const currentConnection = peerConnections.get(peerId);
@@ -373,15 +530,22 @@ const handleNewPeer = async (peerId, peerDoc) => {
     };
 
     await pc.setRemoteDescription(new RTCSessionDescription(peerOffer));
+
+    const queuedCandidates = pendingPeerCandidates.get(peerId) || [];
+    pendingPeerCandidates.delete(peerId);
+    queuedCandidates.forEach((candidate) => {
+        pc.addIceCandidate(new RTCIceCandidate(candidate))
+            .catch((error) => console.error('Failed to flush queued peer candidate:', error));
+    });
+
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
-    const peerRef = doc(db, 'rooms', roomId, 'peers', peerId);
     let answerToSend = { sdp: answer.sdp, type: answer.type };
     if (roomPassword) {
         answerToSend = await encryptData(answerToSend, roomPassword);
     }
-    await updateDoc(peerRef, { answer: answerToSend });
+    await emitSignaling('host:answer', { roomId, peerId, answer: answerToSend });
 };
 
 const createRoom = async () => {
@@ -394,61 +558,47 @@ const createRoom = async () => {
 
     startScreen.classList.add('hidden');
     shareScreen.classList.remove('hidden');
-    sharingModeContainer.classList.add('hidden'); // Hide until connected
+    sharingModeContainer.classList.add('hidden');
 
     if (roomMode === 'group') participantsContainer.classList.remove('hidden');
     updateParticipantsList();
     updateStatus('Waiting for peer(s) to connect...', 'waiting');
     scheduleConnectionHint();
-    
+
     try {
+        await ensureSignalingSocket();
+
         roomId = createId();
-        const roomRef = doc(db, 'rooms', roomId);
-
-        await setDoc(roomRef, { mode: roomMode, hasPassword: !!roomPassword, createdAt: new Date().toISOString() });
-        
-        if (roomMode === 'group') {
-            setTimeout(() => {
-                console.log(`Room ${roomId} expired after 1 hour. Deleting.`);
-                deleteDoc(roomRef).catch(err => console.error("Error deleting expired room:", err));
-            }, 3600 * 1000);
-        }
-
-        const peersCollection = collection(db, 'rooms', roomId, 'peers');
-        roomUnsubscribe = onSnapshot(peersCollection, (snapshot) => {
-            snapshot.docChanges().forEach((change) => {
-                if (change.type === 'added' || change.type === 'modified') {
-                    handleNewPeer(change.doc.id, change.doc)
-                        .catch((error) => console.error('Failed to handle new peer:', error));
-                }
-                if (change.type === 'removed') {
-                    const peerId = change.doc.id;
-                    cleanupConnection(peerId, { closePeerConnection: true });
-                }
-            });
-        }, (error) => {
-            console.error('Room peer listener error:', error);
-            updateStatus('Connection error: room listener failed.', 'error');
+        await emitSignaling('host:create-room', {
+            roomId,
+            mode: roomMode,
+            hasPassword: Boolean(roomPassword)
         });
-        
+
         const shareLink = `${window.location.origin}${window.location.pathname}?id=${encodeURIComponent(roomId)}`;
         shareLinkInput.value = shareLink;
         roomIdText.textContent = `Room ID: ${roomId}`;
         roomIdText.classList.remove('hidden');
         qrCodeContainer.innerHTML = '';
-        new QRCode(qrCodeContainer, { text: shareLink, width: 144, height: 144, colorDark : "#000000", colorLight : "#ffffff", correctLevel : QRCode.CorrectLevel.H });
-        
+        new QRCode(qrCodeContainer, {
+            text: shareLink,
+            width: 144,
+            height: 144,
+            colorDark: '#000000',
+            colorLight: '#ffffff',
+            correctLevel: QRCode.CorrectLevel.H
+        });
+
         if (roomMode === 'p2p') {
             privacyNotice.textContent = 'For your privacy, the connection server for this room will self-destruct after your peer connects.';
         } else {
             privacyNotice.textContent = 'For your privacy, this group room will self-destruct after 1 hour.';
         }
         privacyNotice.classList.remove('hidden');
-
     } catch (error) {
-        console.error("Error creating room:", error);
+        console.error('Error creating room:', error);
         clearConnectionHint();
-        updateStatus("Error: Could not create a share link.", 'error');
+        updateStatus('Error: Could not create a share link.', 'error');
     }
 };
 
@@ -457,6 +607,7 @@ const joinRoom = async (roomId) => {
         updateStatus('Invalid room link. Ask host to share the exact link or QR.', 'error');
         return;
     }
+
     isHost = false;
     startScreen.classList.add('hidden');
     shareScreen.classList.remove('hidden');
@@ -464,15 +615,14 @@ const joinRoom = async (roomId) => {
     sharingModeContainer.classList.add('hidden');
     updateStatus('Connecting...', 'progress');
     scheduleConnectionHint();
+
     try {
-        const roomRef = doc(db, 'rooms', roomId);
-        const roomSnap = await getDoc(roomRef);
-        if (!roomSnap.exists()) {
-            updateStatus('Error: Room does not exist.', 'error');
-            return;
-        }
-        
-        roomMode = roomSnap.data().mode || 'p2p';
+        await ensureSignalingSocket();
+
+        const roomInfo = await emitSignaling('room:get-info', { roomId });
+        roomMode = roomInfo.mode || 'p2p';
+        const hasPassword = Boolean(roomInfo.hasPassword);
+
         if (roomMode === 'p2p') {
             privacyNotice.textContent = 'For your privacy, the connection server for this room self-destructs after you connect.';
         } else {
@@ -482,28 +632,38 @@ const joinRoom = async (roomId) => {
 
         if (roomMode === 'group') participantsContainer.classList.remove('hidden');
 
-        if (roomSnap.data().hasPassword) {
+        if (hasPassword) {
             passwordPromptContainer.classList.remove('hidden');
-            passwordPromptCancel.onclick = () => window.location.href = window.location.pathname;
+            passwordErrorText.classList.add('hidden');
+            passwordErrorText.textContent = 'Incorrect password. Please try again.';
+            passwordPromptCancel.onclick = () => {
+                window.location.href = window.location.pathname;
+            };
             passwordPromptSubmit.onclick = async () => {
                 roomPassword = passwordPromptInput.value;
+                if (!roomPassword || !roomPassword.trim()) {
+                    passwordErrorText.textContent = 'Password is required.';
+                    passwordErrorText.classList.remove('hidden');
+                    return;
+                }
                 passwordErrorText.classList.add('hidden');
                 passwordPromptContainer.classList.add('hidden');
                 try {
                     await proceedWithJoin(roomId);
                 } catch (error) {
-                    console.error("Error joining password-protected room:", error);
-                    updateStatus("Error: Could not connect to host. Please try again.", 'error');
+                    console.error('Error joining password-protected room:', error);
+                    updateStatus('Error: Could not connect to host. Please try again.', 'error');
                     passwordPromptContainer.classList.remove('hidden');
                 }
             };
         } else {
+            roomPassword = null;
             await proceedWithJoin(roomId);
         }
     } catch (error) {
-        console.error("Error joining room:", error);
+        console.error('Error joining room:', error);
         clearConnectionHint();
-        updateStatus("Error: Could not join session.", 'error');
+        updateStatus('Error: Could not join session.', 'error');
     }
 };
 
@@ -515,26 +675,15 @@ const proceedWithJoin = async (roomId) => {
     pc.onicecandidate = async (event) => {
         if (!event.candidate) return;
         try {
-            const candidateCollection = collection(db, 'rooms', roomId, 'peers', localId, 'peerCandidates');
-            await addDoc(candidateCollection, event.candidate.toJSON());
+            await emitSignaling('peer:ice-candidate', {
+                roomId,
+                peerId: localId,
+                candidate: event.candidate.toJSON()
+            });
         } catch (error) {
             console.error('Failed to publish peer ICE candidate:', error);
         }
     };
-    
-    const hostCandidates = collection(db, 'rooms', roomId, 'peers', localId, 'hostCandidates');
-    const unsubscribe = onSnapshot(hostCandidates, (snapshot) => {
-        snapshot.docChanges().forEach((change) => {
-            if (change.type === 'added' && pc.connectionState !== 'closed') {
-                pc.addIceCandidate(new RTCIceCandidate(change.doc.data()))
-                    .catch((error) => console.error('Failed to add host ICE candidate:', error));
-            }
-        });
-    }, (error) => {
-        console.error('Host candidate listener error:', error);
-        updateStatus('Connection error: candidate listener failed.', 'error');
-    });
-    connection.unsubscribe = unsubscribe; // Store the unsubscribe function
 
     const dc = pc.createDataChannel('file-transfer');
     connection.dc = dc;
@@ -543,40 +692,29 @@ const proceedWithJoin = async (roomId) => {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
-    const peerRef = doc(db, 'rooms', roomId, 'peers', localId);
-    connection.peerDocRef = peerRef;
-    connection.ownsPeerDoc = true;
     let offerToSend = { sdp: offer.sdp, type: offer.type };
     if (roomPassword) {
         offerToSend = await encryptData(offerToSend, roomPassword);
     }
-    await setDoc(peerRef, { offer: offerToSend });
 
-    onSnapshot(peerRef, async (snapshot) => {
-        if (pc.connectionState === 'closed') return;
-        
-        let answer = snapshot.data()?.answer;
-        if (!pc.currentRemoteDescription && answer) {
-            try {
-                if (roomPassword) {
-                    answer = await decryptData(answer, roomPassword);
-                }
-                await pc.setRemoteDescription(new RTCSessionDescription(answer));
-            } catch (e) {
-                console.error("Decryption failed - wrong password");
-                passwordPromptInput.value = "";
-                passwordErrorText.classList.remove('hidden');
-                passwordPromptContainer.classList.remove('hidden');
-                pc.close();
-                cleanupConnection('host');
-            }
-        }
-    }, (error) => {
-        console.error('Peer document listener error:', error);
-        updateStatus('Connection error: failed to receive host response.', 'error');
+    await emitSignaling('peer:join-room', {
+        roomId,
+        peerId: localId,
+        offer: offerToSend
     });
-    
-    window.addEventListener('beforeunload', () => deleteDoc(peerRef));
+
+    const queuedCandidates = pendingHostCandidates.get(localId) || [];
+    pendingHostCandidates.delete(localId);
+    queuedCandidates.forEach((candidate) => {
+        pc.addIceCandidate(new RTCIceCandidate(candidate))
+            .catch((error) => console.error('Failed to flush queued host candidate:', error));
+    });
+
+    if (pendingAnswers.has(localId)) {
+        const pendingAnswer = pendingAnswers.get(localId);
+        pendingAnswers.delete(localId);
+        await applyHostAnswer(connection, pendingAnswer);
+    }
 };
 
 const setupDataChannel = (id, connection) => {
@@ -634,16 +772,16 @@ const setupDataChannel = (id, connection) => {
         clearConnectionHint();
         chatContainer.classList.remove('hidden');
         updateParticipantsList();
-         if (isHost) {
+        if (isHost) {
             sharingModeContainer.classList.remove('hidden');
             showFileSharingView();
         }
 
-         if (roomMode === 'p2p' && isHost) {
+        if (roomMode === 'p2p' && isHost) {
             qrCodeArea.classList.add('hidden');
-            console.log('P2P connection established. Deleting signaling room from server.');
-            const roomRef = doc(db, 'rooms', roomId);
-            deleteDoc(roomRef).catch(err => console.error("Error deleting P2P room:", err));
+            console.log('P2P connection established. Closing signaling room.');
+            emitSignaling('host:close-room', { roomId, reason: 'p2p-established' })
+                .catch((error) => console.warn('Failed to close signaling room:', error));
             updateStatus('Connected to peer! Signaling server disconnected for privacy.', 'connected');
         }
     };
@@ -1101,28 +1239,43 @@ const handleDrop = (e) => {
     }
 };
 
-const stopSharing = () => {
+const stopSharing = async () => {
     clearConnectionHint();
-    // Close all peer connections
+
+    const activeRoomId = roomId;
+    const wasHost = isHost;
+
     for (const [peerId] of peerConnections.entries()) {
         cleanupConnection(peerId, { closePeerConnection: true });
     }
 
-    // Host cleans up the room
-    if (isHost && roomId) {
-        if(roomUnsubscribe) roomUnsubscribe();
-        const roomRef = doc(db, 'rooms', roomId);
-        deleteDoc(roomRef).catch(err => console.error("Error deleting room:", err));
+    if (signalingSocket?.connected && activeRoomId) {
+        try {
+            if (wasHost) {
+                await emitSignaling('host:close-room', {
+                    roomId: activeRoomId,
+                    reason: 'host-stopped-sharing'
+                });
+            } else {
+                await emitSignaling('peer:leave-room', {
+                    roomId: activeRoomId,
+                    peerId: localId
+                });
+            }
+        } catch (error) {
+            console.warn('Failed to clean up signaling room:', error);
+        }
     }
 
-    // Reset state
     isHost = false;
     roomId = null;
     roomPassword = null;
     filesToSend = [];
     receivingStates.clear();
+    pendingPeerCandidates.clear();
+    pendingHostCandidates.clear();
+    pendingAnswers.clear();
 
-    // Reset UI
     shareScreen.classList.add('hidden');
     startScreen.classList.remove('hidden');
     participantsList.innerHTML = '';
@@ -1136,13 +1289,15 @@ const stopSharing = () => {
     sendingQueueContainer.classList.add('hidden');
     receivedFilesContainer.classList.add('hidden');
     receivedTextContainer.classList.add('hidden');
+    passwordPromptContainer.classList.add('hidden');
+    passwordErrorText.classList.add('hidden');
+    passwordPromptInput.value = '';
     shareLinkInput.value = '';
     roomIdText.textContent = '';
     roomIdText.classList.add('hidden');
     qrCodeContainer.innerHTML = '';
     roomPasswordInput.value = '';
-    
-    // Clean URL
+
     window.history.pushState({}, '', window.location.pathname);
 };
 

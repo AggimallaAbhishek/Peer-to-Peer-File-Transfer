@@ -82,6 +82,8 @@ Use `backend/.env.example` as a reference:
 - `PORT` (default `8080`)
 - `CORS_ORIGIN` (e.g. `https://your-frontend-domain.com`)
 - `ICE_SERVERS_JSON` (optional JSON array string)
+- `GROUP_ROOM_TTL_MS` (optional room expiry for group rooms; default `3600000`)
+- `P2P_ROOM_TTL_MS` (optional room expiry for p2p rooms; default `900000`)
 
 ## Deployment
 
@@ -142,5 +144,6 @@ Steps:
 ## Notes
 
 - WebRTC file data is still peer-to-peer.
-- Firebase Firestore is still used for signaling in the current frontend logic.
-- Backend is now deployment-ready, but actual cloud deployment must be triggered from your Netlify/Render accounts.
+- Signaling now runs through the backend Socket.IO service (no Firebase dependency).
+- Backend signaling rooms are in-memory, so they reset when the backend restarts/redeploys.
+- Backend is deployment-ready, but actual cloud deployment must be triggered from your Netlify/Render accounts.
