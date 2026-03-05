@@ -873,6 +873,7 @@ const createRoom = async () => {
 
     startScreen.classList.add('hidden');
     shareScreen.classList.remove('hidden');
+    qrCodeArea.classList.remove('hidden');
     sharingModeContainer.classList.add('hidden');
 
     if (roomMode === 'group') participantsContainer.classList.remove('hidden');
@@ -895,6 +896,7 @@ const createRoom = async () => {
         roomIdText.textContent = `Room ID: ${roomId}`;
         roomIdText.classList.remove('hidden');
         qrCodeContainer.innerHTML = '';
+        qrCodeArea.classList.remove('hidden');
         new QRCode(qrCodeContainer, {
             text: shareLink,
             width: 144,
@@ -1659,6 +1661,7 @@ const stopSharing = async () => {
     roomIdText.textContent = '';
     roomIdText.classList.add('hidden');
     qrCodeContainer.innerHTML = '';
+    qrCodeArea.classList.remove('hidden');
     roomPasswordInput.value = '';
     if (scanQrBtn) scanQrBtn.classList.remove('hidden');
 
