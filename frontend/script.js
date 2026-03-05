@@ -103,6 +103,17 @@ const bindSignalingHandlers = () => {
 
     signalingSocket.on("disconnect", (reason) => {
         console.warn("Signaling disconnected:", reason);
+        if (!roomId) return;
+
+        const hasLivePeer = Array.from(peerConnections.values()).some((connection) => {
+            const state = connection?.pc?.connectionState;
+            return state === 'new' || state === 'connecting' || state === 'connected';
+        });
+
+        if (!hasLivePeer) {
+            clearConnectionHint();
+            updateStatus('Connection ended due to network/server issue. Check internet and try again.', 'error');
+        }
     });
 
     signalingSocket.on("room:closed", ({ roomId: closedRoomId, reason }) => {
@@ -110,8 +121,10 @@ const bindSignalingHandlers = () => {
         if (!isHost) {
             peerRoomMembershipActive = false;
             clearConnectionHint();
+            suppressConnectionErrorsFor(3000);
             cleanupConnection('host', { closePeerConnection: true });
-            updateStatus(`Session closed by host (${reason || 'closed'}).`, 'error');
+            const status = getSessionClosedStatus(reason);
+            updateStatus(status.message, status.state);
         }
     });
 
@@ -319,6 +332,7 @@ let scannerIsActive = false;
 let scannerCanvas = null;
 let scannerCanvasContext = null;
 let peerRoomMembershipActive = false;
+let suppressConnectionErrorStatusUntil = 0;
 const pendingPeerCandidates = new Map();
 const pendingHostCandidates = new Map();
 const pendingAnswers = new Map();
@@ -339,6 +353,34 @@ const clearConnectionHint = () => {
         clearTimeout(connectionHintTimer);
         connectionHintTimer = null;
     }
+};
+
+const suppressConnectionErrorsFor = (durationMs = 3000) => {
+    suppressConnectionErrorStatusUntil = Date.now() + durationMs;
+};
+
+const shouldSuppressConnectionErrorStatus = () => Date.now() < suppressConnectionErrorStatusUntil;
+
+const getSessionClosedStatus = (reason) => {
+    const normalizedReason = (reason || '').toLowerCase();
+    if (normalizedReason === 'host-stopped-sharing' || normalizedReason === 'host-page-unload' || normalizedReason === 'host-closed-room' || normalizedReason === 'peer-stopped-sharing') {
+        return {
+            message: 'Connection ended by peer successfully.',
+            state: 'connected'
+        };
+    }
+
+    if (normalizedReason === 'host-disconnected' || normalizedReason === 'expired' || normalizedReason === 'peer-disconnected' || normalizedReason === 'host-offline') {
+        return {
+            message: 'Connection ended due to network/server issue. Check internet and try again.',
+            state: 'error'
+        };
+    }
+
+    return {
+        message: `Session closed (${reason || 'closed'}).`,
+        state: 'error'
+    };
 };
 
 const notifyPeerLeaveRoom = async (reason = 'peer-left') => {
@@ -1014,7 +1056,9 @@ const setupDataChannel = (id, connection) => {
                 notifyPeerLeaveRoom('rtc-state-failed-or-closed');
             }
             clearConnectionHint();
-            updateStatus('Connection failed. Refresh both devices and try again.', 'error');
+            if (!shouldSuppressConnectionErrorStatus()) {
+                updateStatus('Connection ended due to network error. Check internet on both devices and retry.', 'error');
+            }
             cleanupConnection(id);
         }
         if (state === 'disconnected') {
@@ -1025,6 +1069,9 @@ const setupDataChannel = (id, connection) => {
                     console.warn(`Cleaning up stalled connection: ${id}`);
                     if (!isHost && id === 'host') {
                         notifyPeerLeaveRoom('rtc-disconnected-timeout');
+                    }
+                    if (!shouldSuppressConnectionErrorStatus()) {
+                        updateStatus('Connection ended due to network interruption. Please reconnect and try again.', 'error');
                     }
                     cleanupConnection(id, { closePeerConnection: true });
                 }
@@ -1044,7 +1091,9 @@ const setupDataChannel = (id, connection) => {
                 notifyPeerLeaveRoom('ice-failed');
             }
             clearConnectionHint();
-            updateStatus('Could not establish network route between devices.', 'error');
+            if (!shouldSuppressConnectionErrorStatus()) {
+                updateStatus('Connection ended due to network path failure (ICE). Check network and retry.', 'error');
+            }
             cleanupConnection(id, { closePeerConnection: true });
         }
     };
@@ -1253,6 +1302,15 @@ const handleDataChannelMessage = async (event, senderId) => {
                 } else if (parsedData.type === 'text-snippet') {
                     if (isHost) broadcastToPeers(JSON.stringify(parsedData), senderId);
                     displayReceivedText(parsedData.payload, parsedData.sender);
+                } else if (parsedData.type === 'session-end') {
+                    if (!isHost) {
+                        peerRoomMembershipActive = false;
+                        clearConnectionHint();
+                        suppressConnectionErrorsFor(3000);
+                        cleanupConnection(senderId, { closePeerConnection: true });
+                        const status = getSessionClosedStatus(parsedData.reason || 'peer-stopped-sharing');
+                        updateStatus(status.message, status.state);
+                    }
                 }
                 return;
             }
@@ -1529,9 +1587,28 @@ const handleDrop = (e) => {
 const stopSharing = async () => {
     closeQrScannerModal();
     clearConnectionHint();
+    suppressConnectionErrorsFor(3000);
 
     const activeRoomId = roomId;
     const wasHost = isHost;
+
+    if (wasHost) {
+        for (const connection of peerConnections.values()) {
+            if (connection?.dc?.readyState === 'open') {
+                try {
+                    connection.dc.send(JSON.stringify({
+                        type: 'session-end',
+                        reason: 'host-stopped-sharing'
+                    }));
+                } catch (error) {
+                    console.warn('Failed to notify peer about session end via data channel:', error);
+                }
+            }
+        }
+
+        // Give reliable data channel a short window to flush the session-end control message.
+        await new Promise((resolve) => setTimeout(resolve, 120));
+    }
 
     for (const [peerId] of peerConnections.entries()) {
         cleanupConnection(peerId, { closePeerConnection: true });
