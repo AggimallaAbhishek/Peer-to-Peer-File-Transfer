@@ -144,26 +144,36 @@ const bindSignalingHandlers = () => {
         if (!isHost || eventRoomId !== roomId) return;
         const connection = peerConnections.get(peerId);
         if (connection && connection.pc.connectionState !== "closed") {
+            if (!connection.pc.remoteDescription) {
+                queuePendingCandidate(pendingPeerCandidates, peerId, candidate);
+                return;
+            }
             connection.pc.addIceCandidate(new RTCIceCandidate(candidate))
-                .catch((error) => console.error("Failed to add peer candidate on host:", error));
+                .catch((error) => {
+                    console.error("Failed to add peer candidate on host:", error);
+                    queuePendingCandidate(pendingPeerCandidates, peerId, candidate);
+                });
             return;
         }
-        const queued = pendingPeerCandidates.get(peerId) || [];
-        queued.push(candidate);
-        pendingPeerCandidates.set(peerId, queued);
+        queuePendingCandidate(pendingPeerCandidates, peerId, candidate);
     });
 
     signalingSocket.on("peer:host-candidate", ({ roomId: eventRoomId, peerId, candidate }) => {
         if (isHost || eventRoomId !== roomId || peerId !== localId) return;
         const hostConnection = peerConnections.get("host");
         if (hostConnection && hostConnection.pc.connectionState !== "closed") {
+            if (!hostConnection.pc.remoteDescription) {
+                queuePendingCandidate(pendingHostCandidates, peerId, candidate);
+                return;
+            }
             hostConnection.pc.addIceCandidate(new RTCIceCandidate(candidate))
-                .catch((error) => console.error("Failed to add host candidate on peer:", error));
+                .catch((error) => {
+                    console.error("Failed to add host candidate on peer:", error);
+                    queuePendingCandidate(pendingHostCandidates, peerId, candidate);
+                });
             return;
         }
-        const queued = pendingHostCandidates.get(peerId) || [];
-        queued.push(candidate);
-        pendingHostCandidates.set(peerId, queued);
+        queuePendingCandidate(pendingHostCandidates, peerId, candidate);
     });
 
     signalingSocket.on("peer:answer", ({ roomId: eventRoomId, peerId, answer }) => {
@@ -397,6 +407,23 @@ const notifyPeerLeaveRoom = async (reason = 'peer-left') => {
     } finally {
         peerRoomMembershipActive = false;
     }
+};
+
+const queuePendingCandidate = (pendingMap, id, candidate) => {
+    const queued = pendingMap.get(id) || [];
+    queued.push(candidate);
+    pendingMap.set(id, queued);
+};
+
+const flushQueuedCandidates = (pendingMap, id, pc, contextLabel) => {
+    if (!pc || pc.connectionState === 'closed') return;
+    const queued = pendingMap.get(id) || [];
+    pendingMap.delete(id);
+
+    queued.forEach((candidate) => {
+        pc.addIceCandidate(new RTCIceCandidate(candidate))
+            .catch((error) => console.error(`Failed to flush queued ${contextLabel} candidate:`, error));
+    });
 };
 
 const countActivePeerConnections = () => Array.from(peerConnections.values()).filter((connection) => {
@@ -701,6 +728,8 @@ const applyHostAnswer = async (connection, answerPayload) => {
     if (!connection.pc.currentRemoteDescription) {
         await connection.pc.setRemoteDescription(new RTCSessionDescription(answer));
     }
+
+    flushQueuedCandidates(pendingHostCandidates, localId, connection.pc, 'host');
 };
 
 
@@ -842,13 +871,7 @@ const handleNewPeer = async (peerId, peerPayload) => {
     };
 
     await pc.setRemoteDescription(new RTCSessionDescription(peerOffer));
-
-    const queuedCandidates = pendingPeerCandidates.get(peerId) || [];
-    pendingPeerCandidates.delete(peerId);
-    queuedCandidates.forEach((candidate) => {
-        pc.addIceCandidate(new RTCIceCandidate(candidate))
-            .catch((error) => console.error('Failed to flush queued peer candidate:', error));
-    });
+    flushQueuedCandidates(pendingPeerCandidates, peerId, pc, 'peer');
 
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
@@ -1023,13 +1046,6 @@ const proceedWithJoin = async (roomId) => {
         offer: offerToSend
     });
     peerRoomMembershipActive = true;
-
-    const queuedCandidates = pendingHostCandidates.get(localId) || [];
-    pendingHostCandidates.delete(localId);
-    queuedCandidates.forEach((candidate) => {
-        pc.addIceCandidate(new RTCIceCandidate(candidate))
-            .catch((error) => console.error('Failed to flush queued host candidate:', error));
-    });
 
     if (pendingAnswers.has(localId)) {
         const pendingAnswer = pendingAnswers.get(localId);
