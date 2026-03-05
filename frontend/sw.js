@@ -1,9 +1,9 @@
-const CACHE_NAME = 'directdrop-v7';
+const CACHE_NAME = 'directdrop-v8';
 const URLS_TO_CACHE = [
   './',
   './index.html',
   './style.css',
-  './script.js?v=20260305c',
+  './script.js?v=20260305d',
   './config.js',
   './manifest.json'
 ];

@@ -289,6 +289,12 @@ const privacyNotice = document.getElementById('privacy-notice');
 const installBtn = document.getElementById('install-btn');
 const stopShareBtn = document.getElementById('stop-share-btn');
 const roomIdText = document.getElementById('room-id-text');
+const scanQrBtn = document.getElementById('scan-qr-btn');
+const scannerModalContainer = document.getElementById('scanner-modal-container');
+const scannerVideo = document.getElementById('scanner-video');
+const scannerStatusText = document.getElementById('scanner-status-text');
+const scannerImageInput = document.getElementById('scanner-image-input');
+const scannerCloseBtn = document.getElementById('scanner-close-btn');
 
 // --- Global State ---
 let peerConnections = new Map();
@@ -304,6 +310,11 @@ let deferredInstallPrompt = null;
 let connectionHintTimer = null;
 let signalingSocket = null;
 let signalingHandlersBound = false;
+let scannerStream = null;
+let scannerAnimationFrame = null;
+let scannerIsActive = false;
+let scannerCanvas = null;
+let scannerCanvasContext = null;
 const pendingPeerCandidates = new Map();
 const pendingHostCandidates = new Map();
 const pendingAnswers = new Map();
@@ -334,6 +345,235 @@ const countActivePeerConnections = () => Array.from(peerConnections.values()).fi
 const createId = () => {
     if (crypto?.randomUUID) return crypto.randomUUID().replace(/-/g, '');
     return `${Date.now()}${Math.random().toString(16).slice(2, 10)}`;
+};
+
+const updateScannerStatus = (message, isError = false) => {
+    if (!scannerStatusText) return;
+    scannerStatusText.textContent = message;
+    scannerStatusText.classList.toggle('text-red-400', isError);
+    scannerStatusText.classList.toggle('text-gray-400', !isError);
+};
+
+const getScannerCanvasContext = () => {
+    if (!scannerCanvas) {
+        scannerCanvas = document.createElement('canvas');
+    }
+    if (!scannerCanvasContext) {
+        scannerCanvasContext = scannerCanvas.getContext('2d', { willReadFrequently: true });
+    }
+    return scannerCanvasContext;
+};
+
+const decodeQrFromCanvas = (width, height) => {
+    if (!window.jsQR) return null;
+    const context = getScannerCanvasContext();
+    if (!context) return null;
+    const imageData = context.getImageData(0, 0, width, height);
+    return window.jsQR(imageData.data, imageData.width, imageData.height, {
+        inversionAttempts: 'dontInvert'
+    });
+};
+
+const safeDecodeURIComponent = (value) => {
+    try {
+        return decodeURIComponent(value);
+    } catch (_error) {
+        return value;
+    }
+};
+
+const extractRoomIdFromQrPayload = (payload) => {
+    const raw = (payload || '').trim();
+    if (!raw) return null;
+
+    const extractFromUrlLikeText = (text) => {
+        const match = text.match(/[?&]id=([^&#]+)/i);
+        return match ? safeDecodeURIComponent(match[1]).trim() : null;
+    };
+
+    try {
+        const parsed = new URL(raw, window.location.origin);
+        const roomIdFromUrl = parsed.searchParams.get('id');
+        if (roomIdFromUrl && roomIdFromUrl.trim()) {
+            return safeDecodeURIComponent(roomIdFromUrl).trim();
+        }
+    } catch (_error) {
+        // Keep trying with fallback parsing.
+    }
+
+    const roomIdFromFallback = extractFromUrlLikeText(raw);
+    if (roomIdFromFallback) return roomIdFromFallback;
+
+    if (/^[a-zA-Z0-9_-]{8,128}$/.test(raw)) {
+        return raw;
+    }
+
+    return null;
+};
+
+const stopQrScannerStream = () => {
+    scannerIsActive = false;
+    if (scannerAnimationFrame) {
+        cancelAnimationFrame(scannerAnimationFrame);
+        scannerAnimationFrame = null;
+    }
+    if (scannerVideo) {
+        scannerVideo.pause();
+        scannerVideo.srcObject = null;
+    }
+    if (scannerStream) {
+        scannerStream.getTracks().forEach((track) => track.stop());
+        scannerStream = null;
+    }
+};
+
+const closeQrScannerModal = () => {
+    stopQrScannerStream();
+    if (scannerModalContainer) {
+        scannerModalContainer.classList.add('hidden');
+    }
+    if (scannerImageInput) {
+        scannerImageInput.value = '';
+    }
+    updateScannerStatus('Ready to scan.');
+};
+
+const handleQrScanResult = async (payload) => {
+    const scannedRoomId = extractRoomIdFromQrPayload(payload);
+    if (!scannedRoomId || scannedRoomId.length < 8) {
+        updateScannerStatus('QR code does not contain a valid room link.', true);
+        scannerAnimationFrame = requestAnimationFrame(scanQrLoop);
+        return;
+    }
+
+    updateScannerStatus('QR detected. Joining room...');
+    closeQrScannerModal();
+    window.history.replaceState({}, '', `${window.location.pathname}?id=${encodeURIComponent(scannedRoomId)}`);
+    roomId = scannedRoomId;
+    await joinRoom(scannedRoomId);
+};
+
+function scanQrLoop() {
+    if (!scannerIsActive || !scannerVideo) return;
+
+    if (!window.jsQR) {
+        updateScannerStatus('QR scanner library failed to load. Refresh and try again.', true);
+        return;
+    }
+
+    if (scannerVideo.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !scannerVideo.videoWidth || !scannerVideo.videoHeight) {
+        scannerAnimationFrame = requestAnimationFrame(scanQrLoop);
+        return;
+    }
+
+    const context = getScannerCanvasContext();
+    if (!context || !scannerCanvas) {
+        updateScannerStatus('Could not initialize scanner canvas.', true);
+        return;
+    }
+
+    scannerCanvas.width = scannerVideo.videoWidth;
+    scannerCanvas.height = scannerVideo.videoHeight;
+    context.drawImage(scannerVideo, 0, 0, scannerCanvas.width, scannerCanvas.height);
+
+    const result = decodeQrFromCanvas(scannerCanvas.width, scannerCanvas.height);
+    if (result?.data) {
+        handleQrScanResult(result.data).catch((error) => {
+            console.error('Failed to process scanned QR:', error);
+            updateScannerStatus('Failed to join this room. Try scanning again.', true);
+            scannerAnimationFrame = requestAnimationFrame(scanQrLoop);
+        });
+        return;
+    }
+
+    scannerAnimationFrame = requestAnimationFrame(scanQrLoop);
+}
+
+const loadImageFromFile = (file) => new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        resolve(image);
+    };
+    image.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error('Could not read the selected image.'));
+    };
+    image.src = objectUrl;
+});
+
+const handleScannerImageUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!window.jsQR) {
+        updateScannerStatus('QR scanner library failed to load. Refresh and try again.', true);
+        return;
+    }
+
+    try {
+        updateScannerStatus('Scanning uploaded image...');
+        const image = await loadImageFromFile(file);
+        const context = getScannerCanvasContext();
+        if (!context || !scannerCanvas) {
+            updateScannerStatus('Could not initialize scanner canvas.', true);
+            return;
+        }
+        scannerCanvas.width = image.naturalWidth || image.width;
+        scannerCanvas.height = image.naturalHeight || image.height;
+        context.drawImage(image, 0, 0, scannerCanvas.width, scannerCanvas.height);
+        const result = decodeQrFromCanvas(scannerCanvas.width, scannerCanvas.height);
+        if (!result?.data) {
+            updateScannerStatus('No QR code found in that image.', true);
+            return;
+        }
+        await handleQrScanResult(result.data);
+    } catch (error) {
+        console.error('Failed to scan uploaded QR image:', error);
+        updateScannerStatus('Could not scan that image. Try another one.', true);
+    } finally {
+        if (scannerImageInput) {
+            scannerImageInput.value = '';
+        }
+    }
+};
+
+const openQrScannerModal = async () => {
+    if (startScreen?.classList.contains('hidden')) {
+        updateStatus('Stop the current session before scanning a new QR code.', 'error');
+        return;
+    }
+
+    if (!scannerModalContainer || !scannerVideo) {
+        updateStatus('QR scanner UI is unavailable.', 'error');
+        return;
+    }
+
+    scannerModalContainer.classList.remove('hidden');
+    updateScannerStatus('Requesting camera access...');
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+        updateScannerStatus('Camera API is not supported on this browser.', true);
+        return;
+    }
+
+    try {
+        stopQrScannerStream();
+        scannerStream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: {
+                facingMode: { ideal: 'environment' }
+            }
+        });
+        scannerVideo.srcObject = scannerStream;
+        await scannerVideo.play();
+        scannerIsActive = true;
+        updateScannerStatus('Scanning... point camera at the QR code.');
+        scanQrLoop();
+    } catch (error) {
+        console.error('Failed to start QR scanner camera:', error);
+        updateScannerStatus('Camera access denied or unavailable.', true);
+    }
 };
 
 const cleanupConnection = (id, { closePeerConnection = false } = {}) => {
@@ -416,6 +656,7 @@ const initialize = async () => {
     }
     createP2PBtn.addEventListener('click', () => { roomMode = 'p2p'; createRoom(); });
     createGroupBtn.addEventListener('click', () => { roomMode = 'group'; createRoom(); });
+    scanQrBtn.addEventListener('click', openQrScannerModal);
     copyBtn.addEventListener('click', shareOrCopyLink);
     chatSendBtn.addEventListener('click', sendChatMessage);
     chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sendChatMessage(); } });
@@ -432,6 +673,13 @@ const initialize = async () => {
     dropZone.addEventListener('dragleave', handleDragLeave);
     dropZone.addEventListener('drop', handleDrop);
     stopShareBtn.addEventListener('click', stopSharing);
+    scannerCloseBtn.addEventListener('click', closeQrScannerModal);
+    scannerImageInput.addEventListener('change', handleScannerImageUpload);
+    scannerModalContainer.addEventListener('click', (event) => {
+        if (event.target === scannerModalContainer) {
+            closeQrScannerModal();
+        }
+    });
 
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('./sw.js').catch((error) => {
@@ -461,6 +709,7 @@ const initialize = async () => {
         console.log('PWA was installed');
     });
     window.addEventListener('beforeunload', () => {
+        stopQrScannerStream();
         if (!signalingSocket || !roomId) return;
         if (isHost) {
             signalingSocket.emit('host:close-room', { roomId, reason: 'host-page-unload' });
@@ -549,6 +798,7 @@ const handleNewPeer = async (peerId, peerPayload) => {
 };
 
 const createRoom = async () => {
+    closeQrScannerModal();
     isHost = true;
     if (roomMode === 'group') {
         roomPassword = roomPasswordInput.value || null;
@@ -603,6 +853,7 @@ const createRoom = async () => {
 };
 
 const joinRoom = async (roomId) => {
+    closeQrScannerModal();
     if (!roomId || roomId.length < 8) {
         updateStatus('Invalid room link. Ask host to share the exact link or QR.', 'error');
         return;
@@ -1240,6 +1491,7 @@ const handleDrop = (e) => {
 };
 
 const stopSharing = async () => {
+    closeQrScannerModal();
     clearConnectionHint();
 
     const activeRoomId = roomId;
