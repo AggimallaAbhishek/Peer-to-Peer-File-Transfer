@@ -14,40 +14,48 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
     
     <!-- Local Stylesheet -->
     <link rel="stylesheet" href="style.css">
 </head>
-<body class="bg-gray-900 text-white">
+<body class="text-white">
 
     <button id="install-btn" class="hidden fixed top-4 right-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-lg z-50 transition transform hover:scale-105">
         Install App
     </button>
 
     <div class="app-container flex items-center justify-center p-4">
-        <div id="drop-zone" class="w-full max-w-md p-8 space-y-4 bg-gray-800 rounded-2xl shadow-xl transition-all duration-200">
+        <div id="drop-zone" class="main-shell w-full max-w-md p-8 space-y-4 transition-all duration-200">
             <!-- Header -->
-            <div>
-                <h1 class="text-3xl font-bold text-center text-indigo-400">DirectDrop</h1>
-                <p class="text-center text-gray-400 mt-2">Secure Peer-to-Peer File Sharing</p>
+            <div class="hero-head">
+                <button id="scan-qr-btn" class="scan-corner-btn" title="Scan QR to Join" aria-label="Scan QR to Join">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M4 4h6v6H4z"></path>
+                        <path d="M14 4h6v6h-6z"></path>
+                        <path d="M4 14h6v6H4z"></path>
+                        <path d="M15 15h1"></path>
+                        <path d="M18 15h2"></path>
+                        <path d="M15 18h3"></path>
+                        <path d="M20 20h.01"></path>
+                    </svg>
+                </button>
+                <h1 class="text-4xl font-bold text-center">DirectDrop</h1>
+                <p class="text-center mt-2">Secure Peer-to-Peer File Sharing</p>
             </div>
 
             <!-- Initial Screen -->
             <div id="start-screen" class="space-y-4 text-center">
-                <button id="create-p2p-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105">
+                <button id="create-p2p-btn" class="start-action-btn primary-action w-full text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105">
                     Share with One Person
                 </button>
-                <div class="text-center text-gray-400 text-sm">or</div>
-                <button id="create-group-btn" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105">
+                <div class="text-center text-sm action-divider">or</div>
+                <button id="create-group-btn" class="start-action-btn secondary-action w-full text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105">
                     Broadcast to a Group
                 </button>
-                <button id="scan-qr-btn" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105">
-                    Scan QR to Join
-                </button>
                 <div class="pt-2">
-                    <input type="password" id="room-password-input" placeholder="Optional: Room Password" class="block w-full rounded-md bg-gray-700 border-gray-600 text-gray-200 p-3 focus:ring-indigo-500 focus:border-indigo-500 text-center">
-                    <p class="text-xs text-gray-500 mt-1">Passwords are only available for Group rooms.</p>
+                    <input type="password" id="room-password-input" placeholder="Optional: Room Password" class="block w-full rounded-md bg-gray-700 border-gray-600 text-gray-200 p-3 focus:ring-indigo-500 focus:border-indigo-500 text-center room-password-input">
+                    <p class="text-xs text-gray-500 mt-1 password-caption">Passwords are only available for Group rooms.</p>
                 </div>
             </div>
             
@@ -212,6 +220,6 @@
     <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
     <!-- Local Script -->
-    <script type="module" src="script.js?v=20260305d"></script>
+    <script type="module" src="script.js?v=20260305e"></script>
 </body>
 </html>

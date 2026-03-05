@@ -799,6 +799,7 @@ const handleNewPeer = async (peerId, peerPayload) => {
 
 const createRoom = async () => {
     closeQrScannerModal();
+    if (scanQrBtn) scanQrBtn.classList.add('hidden');
     isHost = true;
     if (roomMode === 'group') {
         roomPassword = roomPasswordInput.value || null;
@@ -854,6 +855,7 @@ const createRoom = async () => {
 
 const joinRoom = async (roomId) => {
     closeQrScannerModal();
+    if (scanQrBtn) scanQrBtn.classList.add('hidden');
     if (!roomId || roomId.length < 8) {
         updateStatus('Invalid room link. Ask host to share the exact link or QR.', 'error');
         return;
@@ -1549,6 +1551,7 @@ const stopSharing = async () => {
     roomIdText.classList.add('hidden');
     qrCodeContainer.innerHTML = '';
     roomPasswordInput.value = '';
+    if (scanQrBtn) scanQrBtn.classList.remove('hidden');
 
     window.history.pushState({}, '', window.location.pathname);
 };
