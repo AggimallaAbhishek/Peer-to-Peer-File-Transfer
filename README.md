@@ -15,6 +15,19 @@ This app is built to make file sharing quick without requiring account creation,
 - Real-time connection status and transfer feedback
 - Progressive Web App behavior for installable usage
 
+## Tech Stack
+
+- WebRTC (peer-to-peer connection and data transfer)
+- Socket.IO (real-time signaling between devices)
+- Node.js + Express (backend signaling service)
+- Netlify + Render (cloud deployment)
+
+## Languages Used
+
+- JavaScript
+- HTML5
+- CSS3
+
 ## Live Frontend
 
 https://p2pfile-transfer.netlify.app
