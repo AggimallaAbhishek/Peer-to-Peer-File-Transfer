@@ -1,42 +1,62 @@
-# DirectDrop - Peer-to-Peer File Transfer
+# DirectDrop - Secure Peer-to-Peer File Sharing
 
-DirectDrop is a WebRTC-based file sharing app. This repository is now split into separate frontend and backend services so both can be deployed cleanly.
+DirectDrop is a browser-based file transfer app built with WebRTC DataChannels.  
+Files move directly between devices, while a lightweight Socket.IO backend handles signaling.
 
-Live frontend (existing): https://p2pfile-transfer.netlify.app/
+## Live Links
+
+- Frontend (Netlify): [https://p2pfile-transfer.netlify.app](https://p2pfile-transfer.netlify.app)
+- Backend (Render): [https://peer-to-peer-file-transfer-o0tn.onrender.com](https://peer-to-peer-file-transfer-o0tn.onrender.com)
+- Health check: [https://peer-to-peer-file-transfer-o0tn.onrender.com/health](https://peer-to-peer-file-transfer-o0tn.onrender.com/health)
+- Runtime ICE config: [https://peer-to-peer-file-transfer-o0tn.onrender.com/api/runtime-config](https://peer-to-peer-file-transfer-o0tn.onrender.com/api/runtime-config)
+
+## Features
+
+- One-to-one (P2P) and broadcast/group room modes
+- QR code share and in-app QR scanner for quick joining
+- Optional room password support for protected sessions
+- Real-time chat + multi-file transfer over WebRTC DataChannels
+- PWA support (installable app + service worker caching)
+- Backend-managed STUN/TURN runtime config and CORS-safe API endpoints
+
+## Tech Stack
+
+- Frontend: HTML, Tailwind CSS utility classes, vanilla JavaScript, WebRTC
+- Realtime Signaling: Socket.IO
+- Backend: Node.js, Express
+- Deployment: Netlify (frontend), Render (backend)
 
 ## Project Structure
 
 ```text
 Peer-to-Peer-File-Transfer/
-  frontend/                 # Static web app (HTML/CSS/JS + PWA)
-    index.html
-    script.js
-    style.css
-    sw.js
-    manifest.json
-    config.js
-    config.example.js
-    _headers
-    package.json
-  backend/                  # Node.js API service
+  backend/
     src/server.js
     package.json
     .env.example
-  netlify.toml              # Frontend deploy config (Netlify)
-  render.yaml               # Full Render blueprint (frontend + backend)
-  package.json              # Workspace scripts
+  frontend/
+    index.html
+    style.css
+    script.js
+    sw.js
+    config.js
+    config.example.js
+    manifest.json
+    _headers
+  netlify.toml
+  render.yaml
+  package.json
 ```
 
-## What Changed
+## How It Works
 
-- Moved the existing web app into `frontend/`.
-- Added a deployable backend in `backend/`.
-- Added runtime config endpoint (`/api/runtime-config`) for ICE server config.
-- Frontend now optionally pulls ICE servers from backend (falls back to defaults).
-- Added service worker registration and improved cache handling.
-- Added deployment files for Netlify (frontend) and Render (frontend + backend blueprint).
+1. Host creates a room and shares link/QR.
+2. Peer joins room using the exact link or scanned QR.
+3. Offer/answer + ICE candidates are exchanged through Socket.IO signaling.
+4. WebRTC direct data channel is established.
+5. Files and messages move peer-to-peer (server is not used as file storage).
 
-## Local Development
+## Local Setup
 
 ### 1) Install dependencies
 
@@ -50,100 +70,91 @@ npm install
 npm run dev:backend
 ```
 
-Backend runs on `http://localhost:8080` by default.
+Backend default: `http://localhost:8080`
 
 ### 3) Run frontend
-
-In another terminal:
 
 ```bash
 npm run dev:frontend
 ```
 
-Frontend runs on `http://localhost:5173`.
+Frontend default: `http://localhost:5173`
 
-## Frontend Configuration
+## Configuration
 
-`frontend/config.js` controls runtime backend integration:
+### Frontend runtime config
+
+File: `frontend/config.js`
 
 ```js
 window.DIRECTDROP_CONFIG = {
-  backendUrl: ""
+  backendUrl: "https://peer-to-peer-file-transfer-o0tn.onrender.com"
 };
 ```
 
-- Local: you can set `backendUrl: "http://localhost:8080"`
-- Production: set your deployed backend URL
+### Backend environment variables
 
-## Backend Environment
+Use `backend/.env.example` as a reference.
 
-Use `backend/.env.example` as a reference:
-
-- `PORT` (default `8080`)
-- `CORS_ORIGIN` (e.g. `https://your-frontend-domain.com`)
-- `ICE_SERVERS_JSON` (optional JSON array string)
-- `GROUP_ROOM_TTL_MS` (optional room expiry for group rooms; default `3600000`)
-- `P2P_ROOM_TTL_MS` (optional room expiry for p2p rooms; default `900000`)
+- `PORT` (default: `8080`)
+- `CORS_ORIGIN` (example: `https://p2pfile-transfer.netlify.app`)
+- `ICE_SERVERS_JSON` (optional JSON array with STUN/TURN servers)
+- `GROUP_ROOM_TTL_MS` (default: `3600000`)
+- `P2P_ROOM_TTL_MS` (default: `900000`)
 
 ## Deployment
 
-### Frontend (Netlify)
+### Frontend on Netlify
 
-This repo already includes `netlify.toml` configured to deploy from `frontend/`.
-
-Steps:
-
-1. Import the repo in Netlify.
-2. Keep the default config from `netlify.toml`.
+1. Import this GitHub repo into Netlify.
+2. Keep settings from `netlify.toml` (publish dir: `frontend`).
 3. Deploy.
 
-After deploying frontend, update `frontend/config.js` with your backend URL and redeploy frontend.
+### Backend on Render
 
-### Render (Frontend + Backend)
-
-This repo includes `render.yaml` that deploys both services together:
-
-- `directdrop-backend` (Node API)
-- `directdrop-frontend` (static site)
-- Frontend gets backend URL automatically from Render service discovery.
-- Backend CORS is automatically set to the frontend host.
-
-Steps:
-
-1. Create a new Render Blueprint service from this repo.
-2. Confirm both services are selected.
-3. Click `Apply` to deploy.
-4. Optional: set `ICE_SERVERS_JSON` on backend for custom TURN/STUN servers.
-
-### Backend Only (Render)
-
-If you only want backend on Render and frontend elsewhere:
-
-1. Create a Render web service using `rootDir=backend`.
+1. Create a Render Web Service with `rootDir=backend`.
 2. Build command: `npm install`
 3. Start command: `npm start`
-4. Set `CORS_ORIGIN` to your frontend domain.
-5. Optional: set `ICE_SERVERS_JSON` for custom TURN/STUN.
-6. Deploy.
+4. Add env var: `CORS_ORIGIN=https://p2pfile-transfer.netlify.app`
+5. Deploy.
 
-### Frontend (Netlify)
+You can also use `render.yaml` for blueprint deployment.
 
-This repo also includes `netlify.toml` configured to deploy from `frontend/`.
+## Verification Commands
 
-Steps:
+```bash
+BACKEND_URL="https://peer-to-peer-file-transfer-o0tn.onrender.com"
+FRONTEND_URL="https://p2pfile-transfer.netlify.app"
 
-1. Import the repo in Netlify.
-2. Keep the default config from `netlify.toml`.
-3. Deploy.
+curl -sS "$BACKEND_URL/health"
+curl -sS "$BACKEND_URL/api/runtime-config"
+curl -sS "$FRONTEND_URL/config.js"
+curl -sS "$FRONTEND_URL" | grep -E 'config\.js|script\.js|manifest\.json'
+curl -sS -D - -o /dev/null -H "Origin: $FRONTEND_URL" "$BACKEND_URL/api/runtime-config" | grep -Ei 'HTTP/|access-control-allow-origin'
+```
 
-## API Endpoints (Backend)
+## Troubleshooting
 
-- `GET /health` -> service health
-- `GET /api/runtime-config` -> runtime ICE server config for frontend
+- If status is stuck on "Connecting":
+  - Open the exact shared link (do not edit room ID manually)
+  - Disable VPN/ad blocker temporarily
+  - Hard refresh on both devices (`Cmd+Shift+R`)
+  - Confirm backend `/health` and `/api/runtime-config` are reachable
+- Render free tier may cold start after inactivity (first connection can be slow)
+- Some networks block UDP; TURN fallback improves reliability
 
-## Notes
+## Security and Privacy Notes
 
-- WebRTC file data is still peer-to-peer.
-- Signaling now runs through the backend Socket.IO service (no Firebase dependency).
-- Backend signaling rooms are in-memory, so they reset when the backend restarts/redeploys.
-- Backend is deployment-ready, but actual cloud deployment must be triggered from your Netlify/Render accounts.
+- File payloads are sent over encrypted WebRTC transport (DTLS/SRTP).
+- Signaling server stores rooms in memory only (ephemeral; cleared on restart).
+- No permanent file storage on backend.
+
+## Roadmap
+
+- Better transfer progress analytics
+- Resume/retry for interrupted transfers
+- Improved UI motion and accessibility refinements
+
+## Author
+
+Built by Abhishek.
